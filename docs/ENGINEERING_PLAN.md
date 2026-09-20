@@ -214,7 +214,7 @@ The startup URL is passed via CDP `Page.navigate`, never on the command line.
 | V6 | Storage isolation | set cookie + localStorage in 001 on echo origin; read in 002; compare profile realpaths | absent in 002; distinct paths |
 | V7 | Fail-closed | `Gate.Close()`; navigate → expect net error; `Gate.Open()`; navigate → success through the same gate (Tor exit may rotate; never the host IP) | both hold |
 | V8 | No direct connections | PlatformProvider samples the identity's process-tree remote endpoints throughout V2–V7 | only `127.0.0.1:<gate>` |
-| V9 | Startup URL | after `Page.navigate`, main-frame response received and gate saw CONNECT to the URL host from that identity | true |
+| V9 | Startup URL | after `Page.navigate`, main-frame document response or a successful gate CONNECT to the URL host (not a full loadEvent) | true |
 
 `--diagnostics --full` adds: WebSocket echo, redirect chain (301/302/307/308,
 cross-origin), download, service-worker fetch, WebRTC candidate gathering

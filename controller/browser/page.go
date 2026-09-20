@@ -117,10 +117,21 @@ func (r NavResult) Blocked() bool { return r.ErrorText != "" }
 
 // Navigate loads url and waits for the load event (or a network error).
 func (p *Page) Navigate(ctx context.Context, url string) (NavResult, error) {
+	return p.navigate(ctx, url, false)
+}
+
+// NavigateDocument loads url and returns when the main-frame document
+// response arrives. It does not wait for subresources (ads, images) to
+// finish — required for V9 on heavy sites over Tor.
+func (p *Page) NavigateDocument(ctx context.Context, url string) (NavResult, error) {
+	return p.navigate(ctx, url, true)
+}
+
+func (p *Page) navigate(ctx context.Context, url string, documentOnly bool) (NavResult, error) {
 	var last NavResult
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
-		last, lastErr = p.navigateOnce(ctx, url)
+		last, lastErr = p.navigateOnce(ctx, url, documentOnly)
 		if lastErr != nil {
 			return last, lastErr
 		}
@@ -142,7 +153,7 @@ func transientNavError(s string) bool {
 	return strings.Contains(s, "ERR_ABORTED") || strings.Contains(s, "ERR_FAILED")
 }
 
-func (p *Page) navigateOnce(ctx context.Context, url string) (NavResult, error) {
+func (p *Page) navigateOnce(ctx context.Context, url string, documentOnly bool) (NavResult, error) {
 	start := time.Now()
 	res := NavResult{RequestedURL: url}
 	events, cancel := p.b.cdp.Subscribe(p.SessionID, "")
@@ -194,6 +205,9 @@ func (p *Page) navigateOnce(ctx context.Context, url string) (NavResult, error) 
 				if json.Unmarshal(ev.Params, &r) == nil && r.Type == "Document" && r.FrameID == nav.FrameID && r.LoaderID == nav.LoaderID {
 					res.FinalURL = r.Response.URL
 					res.Status = r.Response.Status
+					if documentOnly && res.Status > 0 {
+						return finish(), nil
+					}
 				}
 			case "Network.loadingFailed":
 				var f struct {

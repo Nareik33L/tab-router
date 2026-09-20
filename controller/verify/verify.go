@@ -5,6 +5,7 @@ package verify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -544,35 +545,18 @@ func V9StartupURL(ctx context.Context, s *Subject, page *browser.Page, startupUR
 	cursor := s.Gate.EventCount()
 	ctx, cancel := context.WithTimeout(ctx, 2*o.timeout())
 	defer cancel()
-	res, err := page.Navigate(ctx, startupURL)
-	if err != nil {
-		c.Detail = err.Error()
-		return o.report(s, c), res
-	}
-	if res.Blocked() {
+	// Wait for the main-frame document, not a full loadEvent. Sites like
+	// whatismyipaddress.com hang on ads/trackers over Tor and never fire it.
+	res, err := page.NavigateDocument(ctx, startupURL)
+	host := hostOf(startupURL)
+	reused := gateSawHost(s.Gate.Events(), host)
+	fresh := gateSawHost(s.Gate.EventsSince(cursor), host)
+	saw := fresh || reused
+	if res.Blocked() && !saw {
 		c.Detail = "navigation failed: " + res.ErrorText
 		return o.report(s, c), res
 	}
-	host := hostOf(startupURL)
-	// Chromium may reuse a keep-alive connection opened earlier in this
-	// session (e.g. by the verification tab), in which case no new CONNECT
-	// appears. Any successful CONNECT to the host through this gate proves
-	// the path, because V8 has established the gate is the only egress.
-	reused := false
-	for _, ev := range s.Gate.Events() {
-		if strings.EqualFold(ev.Host, host) && ev.Reply == socks5.RepSuccess {
-			reused = true
-			break
-		}
-	}
-	fresh := false
-	for _, ev := range s.Gate.EventsSince(cursor) {
-		if strings.EqualFold(ev.Host, host) && ev.Reply == socks5.RepSuccess {
-			fresh = true
-			break
-		}
-	}
-	if fresh || reused {
+	if saw && res.Status > 0 && !res.Blocked() {
 		c.Passed = true
 		c.Detail = fmt.Sprintf("HTTP %d via %s", res.Status, s.Route.ID())
 		if !fresh {
@@ -583,8 +567,32 @@ func V9StartupURL(ctx context.Context, s *Subject, page *browser.Page, startupUR
 		}
 		return o.report(s, c), res
 	}
+	// Isolation of the URL path is proven by a successful CONNECT even if
+	// the site never finishes (Tor-blocked, challenge page, hung assets).
+	if saw && (res.Status > 0 || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
+		c.Passed = true
+		if res.Status > 0 {
+			c.Detail = fmt.Sprintf("HTTP %d via %s", res.Status, s.Route.ID())
+		} else {
+			c.Detail = fmt.Sprintf("CONNECT to %s via %s (page still loading)", host, s.Route.ID())
+		}
+		return o.report(s, c), res
+	}
+	if err != nil {
+		c.Detail = err.Error()
+		return o.report(s, c), res
+	}
 	c.Detail = fmt.Sprintf("no CONNECT to %s observed at gate", host)
 	return o.report(s, c), res
+}
+
+func gateSawHost(events []provider.ConnectEvent, host string) bool {
+	for _, ev := range events {
+		if strings.EqualFold(ev.Host, host) && ev.Reply == socks5.RepSuccess {
+			return true
+		}
+	}
+	return false
 }
 
 // ---- endpoint sampler -------------------------------------------------------

@@ -450,7 +450,12 @@ func (s *Session) failAndAbort(ctx context.Context) {
 		}
 		if len(failed) > 0 {
 			rep.Result(sub.Label(), "Network verification", "FAILED ("+strings.Join(failed, ", ")+")", false)
-			rep.Line("ERROR: %s could not be verified as isolated.", sub.Label())
+			onlyURL := len(seen) == 1 && seen["V9"]
+			if onlyURL {
+				rep.Line("ERROR: %s isolation passed; the startup URL did not load (the site may be slow or blocking Tor).", sub.Label())
+			} else {
+				rep.Line("ERROR: %s could not be verified as isolated.", sub.Label())
+			}
 			for _, d := range details {
 				rep.Line("  %s", d)
 			}

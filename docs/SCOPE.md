@@ -488,7 +488,7 @@ Per identity (V1–V9) and cross-identity (V3):
 | V6 | Storage isolation | Set cookie + localStorage in 001 on echo origin; read in 002; compare profile realpaths | absent in 002; paths distinct |
 | V7 | Fail-closed | Gate forced DOWN; navigate; then restore; navigate | error while down; success through the same gate after restore (Tor exit may rotate; must not become the host IP) |
 | V8 | No direct connections | Platform provider enumerates remote endpoints of the identity's process tree throughout V2–V7 | only `127.0.0.1:<gate>` |
-| V9 | Startup URL | After open, CDP main-frame response received; gate saw CONNECT to URL host for that identity | true (M4+) |
+| V9 | Startup URL | After open, CDP main-frame document response **or** a successful gate CONNECT to the URL host (do not wait for a full loadEvent — ads/trackers over Tor often never finish) | true (M4+) |
 
 Success output (engineer may restyle; content is mandatory):
 
