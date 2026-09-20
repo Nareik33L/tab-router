@@ -47,7 +47,7 @@ jobs:
             cd ~/tab-router-app
             curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-apple-silicon
             chmod +x tab-router
-            xattr -d com.apple.quarantine tab-router
+            xattr -c tab-router 2>/dev/null
             ./tab-router --identities 2 --url https://example.com
             ```
 
