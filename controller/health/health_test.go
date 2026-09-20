@@ -69,8 +69,18 @@ func TestProbeEgressChangeEmitsOnce(t *testing.T) {
 	}
 
 	current.Store("203.0.113.9")
+	// Windows clock resolution is coarser than 1ns; expire the last IP
+	// check so the next probes actually fetch the echo address.
+	forceIPCheck := func() {
+		m.mu.Lock()
+		m.state[sub].LastIPCheck = time.Time{}
+		m.mu.Unlock()
+	}
+	forceIPCheck()
 	m.probe(context.Background(), sub)
+	forceIPCheck()
 	m.probe(context.Background(), sub)
+	forceIPCheck()
 	m.probe(context.Background(), sub)
 
 	changed := 0
