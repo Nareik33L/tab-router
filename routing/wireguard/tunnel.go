@@ -33,8 +33,8 @@ type Tunnel struct {
 	dev  *device.Device
 	tnet *netstack.Net
 
-	mu      sync.Mutex
-	closed  bool
+	mu     sync.Mutex
+	closed bool
 }
 
 // Dialer-like: *Tunnel implements DialContext.
@@ -193,6 +193,19 @@ func (t *Tunnel) ListenTCP(addr *net.TCPAddr) (net.Listener, error) {
 		return nil, fmt.Errorf("wireguard: tunnel closed")
 	}
 	return t.tnet.ListenTCP(addr)
+}
+
+// SetPeerEndpoint updates the configured peer's UDP endpoint (used by tests
+// after both devices have bound an ephemeral listen port).
+func (t *Tunnel) SetPeerEndpoint(hostport string) error {
+	if _, _, err := net.SplitHostPort(hostport); err != nil {
+		return fmt.Errorf("endpoint: %w", err)
+	}
+	pub, err := ParseKey(t.cfg.PeerPublicKey)
+	if err != nil {
+		return err
+	}
+	return t.dev.IpcSet(fmt.Sprintf("public_key=%s\nendpoint=%s\n", pub.Hex(), hostport))
 }
 
 // ListenPort is the UDP port the device bound, or 0.

@@ -9,17 +9,6 @@ import (
 	"time"
 )
 
-func freeUDP(t *testing.T) int {
-	t.Helper()
-	c, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := c.LocalAddr().(*net.UDPAddr).Port
-	c.Close()
-	return port
-}
-
 // TestUserspaceLoopback proves two userspace WireGuard stacks can peer on
 // localhost and carry TCP without administrator rights or host routes.
 func TestUserspaceLoopback(t *testing.T) {
@@ -31,17 +20,16 @@ func TestUserspaceLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	portA, portB := freeUDP(t), freeUDP(t)
 
-	open := func(priv Key, peer Key, local string, listen, peerPort int) *Tunnel {
+	open := func(priv, peer Key, local string) *Tunnel {
 		t.Helper()
 		tun, err := Open(Config{
 			PrivateKey:    priv.Base64(),
 			PeerPublicKey: peer.Public().Base64(),
-			Endpoint:      fmt.Sprintf("127.0.0.1:%d", peerPort),
-			LocalAddress:  local,
-			DNS:           "10.66.66.1",
-			ListenPort:    listen,
+			// Placeholder; replaced with the peer's real listen port below.
+			Endpoint:     "127.0.0.1:1",
+			LocalAddress: local,
+			DNS:          "10.66.66.1",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -49,8 +37,23 @@ func TestUserspaceLoopback(t *testing.T) {
 		t.Cleanup(func() { _ = tun.Close() })
 		return tun
 	}
-	alice := open(aPriv, bPriv, "10.66.66.1", portA, portB)
-	bob := open(bPriv, aPriv, "10.66.66.2", portB, portA)
+	alice := open(aPriv, bPriv, "10.66.66.1")
+	bob := open(bPriv, aPriv, "10.66.66.2")
+
+	portA, err := alice.ListenPort()
+	if err != nil || portA == 0 {
+		t.Fatalf("alice listen port: %d %v", portA, err)
+	}
+	portB, err := bob.ListenPort()
+	if err != nil || portB == 0 {
+		t.Fatalf("bob listen port: %d %v", portB, err)
+	}
+	if err := alice.SetPeerEndpoint(fmt.Sprintf("127.0.0.1:%d", portB)); err != nil {
+		t.Fatal(err)
+	}
+	if err := bob.SetPeerEndpoint(fmt.Sprintf("127.0.0.1:%d", portA)); err != nil {
+		t.Fatal(err)
+	}
 
 	ln, err := bob.ListenTCP(&net.TCPAddr{IP: net.ParseIP("10.66.66.2").To4(), Port: 0})
 	if err != nil {
@@ -73,7 +76,7 @@ func TestUserspaceLoopback(t *testing.T) {
 	defer cancel()
 	c, err := alice.DialContext(ctx, "tcp", ln.Addr().String())
 	if err != nil {
-		t.Fatalf("dial through tunnel: %v", err)
+		t.Fatalf("dial through tunnel (alice :%d -> bob :%d): %v", portA, portB, err)
 	}
 	defer c.Close()
 	if _, err := c.Write([]byte("ping")); err != nil {
@@ -103,7 +106,6 @@ func TestDialRefusedWhenClosed(t *testing.T) {
 		PeerPublicKey: peer.Public().Base64(),
 		Endpoint:      "127.0.0.1:1",
 		LocalAddress:  "10.66.66.3",
-		ListenPort:    freeUDP(t),
 	})
 	if err != nil {
 		t.Fatal(err)

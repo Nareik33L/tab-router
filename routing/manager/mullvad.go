@@ -126,13 +126,13 @@ type Mullvad struct {
 
 // Relay is one Mullvad WireGuard server.
 type Relay struct {
-	Hostname   string `json:"hostname"`
-	Country    string `json:"country_code"`
-	City       string `json:"city_code"`
-	Active     bool   `json:"active"`
-	IPv4       string `json:"ipv4_addr_in"`
-	PubKey     string `json:"pubkey"`
-	SOCKSName  string `json:"socks_name"`
+	Hostname  string `json:"hostname"`
+	Country   string `json:"country_code"`
+	City      string `json:"city_code"`
+	Active    bool   `json:"active"`
+	IPv4      string `json:"ipv4_addr_in"`
+	PubKey    string `json:"pubkey"`
+	SOCKSName string `json:"socks_name"`
 }
 
 // OpenMullvad loads the saved account and ensures one device per slot.
