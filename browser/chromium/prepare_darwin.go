@@ -18,7 +18,12 @@ func prepareExecutable(bin string) error {
 		target = bin
 	}
 	_ = exec.Command("xattr", "-cr", target).Run()
-	cmd := exec.Command("codesign", "--force", "--deep", "--sign", "-", target)
+	// Re-signing changes the ad-hoc identity. macOS then prompts for the
+	// login password so the new signature can use "Chromium Safe Storage".
+	if exec.Command("codesign", "--verify", "--quiet", target).Run() == nil {
+		return nil
+	}
+	cmd := exec.Command("codesign", "--force", "--deep", "--sign", "-", "--identifier", "org.chromium.Chromium", target)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("codesign %s: %v: %s", filepath.Base(target), err, strings.TrimSpace(string(out)))

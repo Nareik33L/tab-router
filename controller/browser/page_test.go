@@ -1,6 +1,9 @@
 package browser
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestIsErrorPageURL(t *testing.T) {
 	yes := []string{
@@ -34,5 +37,14 @@ func TestTransientNavError(t *testing.T) {
 	}
 	if transientNavError("net::ERR_PROXY_CONNECTION_FAILED") {
 		t.Fatal("proxy refuse must not be treated as a transient retry")
+	}
+}
+
+func TestHardeningFlagsAvoidKeychain(t *testing.T) {
+	joined := strings.Join(HardeningFlags("127.0.0.1:1"), " ")
+	for _, want := range []string{"--use-mock-keychain", "--password-store=basic", "OsCryptAsync", "AppBoundEncryption"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("hardening flags missing %s", want)
+		}
 	}
 }

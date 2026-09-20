@@ -39,6 +39,9 @@ func prepareExecutable(bin string) error {
 }
 
 func adhocSign(path string) error {
+	if exec.Command("codesign", "--verify", "--quiet", path).Run() == nil {
+		return nil
+	}
 	cmd := exec.Command("codesign", "--force", "--sign", "-", path)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -39,7 +39,7 @@ correlate them.
 | `--disable-domain-reliability`, `--disable-client-side-phishing-detection`, `--disable-breakpad`, `--metrics-recording-only`, `--no-pings` | Telemetry, crash reports, hyperlink auditing. |
 | `--disable-features=OptimizationHints,MediaRouter,Translate,InterestFeedContentSuggestions,SafeBrowsingEnhancedProtection,ChromeWhatsNewUI,PrivacySandboxSettings4,SegmentationPlatform,AutofillServerCommunication` | Hint fetches, cast discovery (mDNS/UDP), translate ranker, feed, promo pages, Privacy Sandbox, autofill server calls. |
 | `--no-first-run`, `--no-default-browser-check`, `--disable-search-engine-choice-screen`, `--no-service-autorun` | First-run UI and its network calls. |
-| `--password-store=basic`, `--use-mock-keychain` | No OS keychain prompts; passwords stay inside the profile. |
+| `--password-store=basic`, `--use-mock-keychain`, `--disable-features=OsCryptAsync,AppBoundEncryption` | No macOS login-password / Keychain prompts. Official Chromium's async OSCrypt ignores the mock keychain unless OsCryptAsync is off. |
 | Preferences: `safebrowsing.enabled=false`, `signin.allowed=false`, `search.suggest_enabled=false`, `alternate_error_pages.enabled=false`, `net.network_prediction_options=2`, `spellcheck.use_spelling_service=false`, `translate.enabled=false`, `dns_prefetching.enabled=false`, `default_apps_install_state` | Same goals at the profile level so they survive a Chromium version that ignores a flag. |
 
 ## Per-identity environment (stability, not disguise)

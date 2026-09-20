@@ -180,7 +180,7 @@ func HardeningFlags(gateAddr string) []string {
 		// No UDP paths out of the browser.
 		"--disable-quic",
 		"--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-		"--disable-features=DnsOverHttps,AsyncDns,OptimizationHints,MediaRouter,Translate,InterestFeedContentSuggestions,CalculateNativeWinOcclusion,SafeBrowsingEnhancedProtection,ChromeWhatsNewUI,PrivacySandboxSettings4,SegmentationPlatform,AutofillServerCommunication",
+		"--disable-features=DnsOverHttps,AsyncDns,OptimizationHints,MediaRouter,Translate,InterestFeedContentSuggestions,CalculateNativeWinOcclusion,SafeBrowsingEnhancedProtection,ChromeWhatsNewUI,PrivacySandboxSettings4,SegmentationPlatform,AutofillServerCommunication,OsCryptAsync,AppBoundEncryption",
 		// Reduce non-user traffic that would correlate identities.
 		"--disable-background-networking",
 		"--disable-component-update",

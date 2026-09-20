@@ -59,6 +59,10 @@ If macOS says the app is damaged or cannot be opened, run
 `~/tab-router-app`. If Terminal says there is no quarantine attribute,
 ignore that and start the program.
 
+Tab Router never needs your Mac password or administrator rights. If a
+Keychain or password dialog appears, click Cancel — it is Chromium
+asking, not Tab Router, and current builds suppress it.
+
 ### Mac (Intel)
 
 ```sh
