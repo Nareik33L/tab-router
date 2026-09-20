@@ -18,7 +18,7 @@ the scope wins; open an ADR in `docs/adr/` if you need to deviate.
 | M8 pinned Chromium, fetch script, docs | done | `browser/chromium/pin.json` (Chrome for Testing 153.0.8010.52, SHA-256 per platform), `scripts/fetch-chromium`, `docs/chromium-flags.md`, `docs/leak-testing.md` |
 | M9 lift the 2-identity cap | not started (by design) | `config.MaxIdentities = 2` |
 | Add-on: per-identity pinned environment | done | ADR-0002, `identity.Environment`, `TestEnvironmentApplied`, `TestPersistenceAndFresh` |
-| Add-on: automatic route provisioning | done | ADR-0003, `routing/manager`, `routing/wireguard`, `tab-router provider login` |
+| Add-on: automatic route provisioning | done | ADR-0003, ADR-0004, `routing/manager`, `routing/tor`; no login on the normal path |
 
 Remaining before a v0.1 tag: the manual `docs/leak-testing.md` pass with a
 packet capture on real Windows/macOS hardware, and code signing. CI now
@@ -46,7 +46,7 @@ Four rules that override everything else:
    There is no code path that yields DIRECT.
 4. **No manual networking for the user.** The app never touches host routes,
    adapters, DNS or firewall, and never needs admin. Automatic provisioning
-   (Mullvad + userspace WireGuard after one-time `provider login`) is the
+   (local Tor Expert Bundle, no account) is the
    normal path. `routes.toml` is an optional override.
 
 Do not spend time on: GUI polish, single-window tabs, fingerprinting,
@@ -68,10 +68,11 @@ The gate dials upstream via the route's `RoutingProvider`. Gate states:
 `CLOSED` (refuse all) / `OPEN` (forward). Credentials live in the gate, never in
 Chromium. On route `DOWN` the gate goes `CLOSED` and tears down live tunnels.
 
-**D3 — Route providers for v0.1:** automatic Mullvad userspace WireGuard
-(one independent tunnel per identity, no OS interface, no admin). Upstream
+**D3 — Route providers for v0.1:** automatic local Tor (one independent
+circuit per identity, no OS interface, no admin, no account). Upstream
 SOCKS5 and HTTP CONNECT remain as a power-user `routes.toml` override and
-as the in-process test infra. Routes are never shared between identities.
+as the in-process test infra. Optional leftover Mullvad userspace WireGuard
+is not part of the normal path. Routes are never shared between identities.
 
 **D4 — Language: Go (recommended).** Single static binaries for
 win/amd64, darwin/arm64, darwin/amd64; mature SOCKS5/HTTP proxy libraries;
@@ -144,7 +145,6 @@ README.md                     startup commands only
 
 ```
 tab-router [--identities N] [--url URL] [--fresh] [--config P] [--routes P] [--data-dir P]
-tab-router provider login|status|logout
 tab-router --status | --stop | --diagnostics [--full] | --version
 ```
 
@@ -152,9 +152,9 @@ Exit codes: 0 ok · 1 usage/config · 2 verification failed (shut down safely) �
 3 route establishment failed · 4 browser launch failed · 5 already running.
 
 Interactive mode only when no flags and stdin is a TTY: prompt identity count
-(default 2) and startup URL. If neither `provider.toml` nor `routes.toml` is
-present, print the `tab-router provider login` hint and exit 1. Never prompt
-for SOCKS/HTTP credentials. `--fresh` does not delete provider configuration.
+(default 2) and startup URL. Routes are provisioned automatically. Never prompt
+for SOCKS/HTTP credentials or a provider account. `--fresh` does not delete
+optional leftover provider configuration.
 
 ### 3.2 IdentityManager
 

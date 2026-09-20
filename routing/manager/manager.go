@@ -67,9 +67,9 @@ func (s Static) Close() error { return nil }
 // Resolve picks a provisioner for this session.
 //
 //  1. explicitDefs (tests / --routes) win.
-//  2. Else a configured provider.toml (Mullvad).
+//  2. Else a configured provider.toml (optional Mullvad leftover).
 //  3. Else an existing routes.toml (power-user override).
-//  4. Else ErrNoProvider.
+//  4. Else the default local Tor provisioner (no account, no login).
 func Resolve(ctx context.Context, dataDir, routesPath string, explicitDefs []provider.RouteDef, n int) (Provisioner, string, error) {
 	if len(explicitDefs) > 0 {
 		return Static{Defs: explicitDefs}, "static", nil
@@ -87,11 +87,11 @@ func Resolve(ctx context.Context, dataDir, routesPath string, explicitDefs []pro
 			return nil, "", ErrTryRoutes
 		}
 	}
-	return nil, "", ErrNoProvider
+	return &Local{DataDir: dataDir}, "tor", nil
 }
 
-// ErrNoProvider means the user has not done one-time provider login and
-// has no routes.toml either.
+// ErrNoProvider is retained for callers that still special-case a missing
+// optional override; normal startup never returns it.
 var ErrNoProvider = fmt.Errorf("no network provider configured")
 
 // ErrTryRoutes tells the caller to fall back to routes.toml.

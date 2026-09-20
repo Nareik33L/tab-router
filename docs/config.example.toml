@@ -1,5 +1,5 @@
 # Tab Router configuration (non-secret).
-# Network routes are provisioned automatically after `tab-router provider login`.
+# Network routes are provisioned automatically on start. No login required.
 # Power users may still drop a routes.toml next to this file.
 identities = 2
 startup_url = ""

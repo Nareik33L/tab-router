@@ -58,7 +58,9 @@ func (d *Dialer) DialContext(ctx context.Context, network, hostport string) (net
 func (d *Dialer) handshake(conn net.Conn, host string, port int) error {
 	methods := []byte{MethodNoAuth}
 	if d.Username != "" || d.Password != "" {
-		methods = append(methods, MethodUserPass)
+		// Only UserPass: offering NoAuth as well lets some proxies (Tor)
+		// pick NoAuth and drop stream-isolation credentials.
+		methods = []byte{MethodUserPass}
 	}
 	greet := append([]byte{Version5, byte(len(methods))}, methods...)
 	if _, err := conn.Write(greet); err != nil {

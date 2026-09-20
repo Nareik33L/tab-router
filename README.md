@@ -1,8 +1,8 @@
 # Tab Router
 
 Two isolated Chromium browsers on one Mac or Windows PC. Each has its own
-cookies, window, and public IP. You do **not** need Go, and you do **not**
-need to create a `routes.toml` file.
+cookies, window, and public IP. You do **not** need Go, a Tab Router account,
+a `routes.toml` file, or any login.
 
 Status: two identities, automatic routes. Cap stays at 2 until the isolation
 suite is signed off ([`docs/ENGINEERING_PLAN.md`](docs/ENGINEERING_PLAN.md), M9).
@@ -10,15 +10,12 @@ Downloads: [latest GitHub Release](https://github.com/Nareik33L/tab-router/relea
 
 ## Quick start (Terminal, no Go)
 
-You need:
+You need a Mac or a Windows PC, and **Terminal** (Mac) or **PowerShell**
+(Windows). There is nothing to sign up for.
 
-1. A Mac or a Windows PC.
-2. A [Mullvad](https://mullvad.net) account (Tab Router cannot invent extra
-   public IPs; Mullvad provides two separate exits). Copy the account number
-   from the Mullvad website.
-3. **Terminal** on a Mac, or **PowerShell** on Windows.
-
-You will download a program, paste your Mullvad number once, then start.
+The first start downloads Chromium and a local network-exit helper (Tor).
+Tab Router then asks how many identities and which URL, provisions one
+isolated route per identity, verifies them, and opens the browsers.
 
 ### Mac (Apple chip — M1, M2, M3, M4)
 
@@ -35,24 +32,30 @@ cd ~/tab-router-app
 curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-apple-silicon
 chmod +x tab-router
 xattr -d com.apple.quarantine tab-router
-./tab-router provider login
+./tab-router
 ```
 
-When it asks for an account number, paste your Mullvad number and press Enter.
+When it asks:
 
-Then paste:
+```
+Number of identities [2]:
+Startup URL (blank for none):
+```
+
+Type `2`, press Enter, then paste a URL such as `https://example.com` and
+press Enter. Or skip the prompts:
 
 ```sh
 cd ~/tab-router-app
 ./tab-router --identities 2 --url https://example.com
 ```
 
-The first run downloads Chromium. Two browser windows should open. You never
-create a route file.
+Two browser windows should open. You never create a route file and you
+never log in.
 
 If macOS says the app is damaged or cannot be opened, run
 `xattr -d com.apple.quarantine ~/tab-router-app/tab-router`, then retry
-`./tab-router provider login` from `~/tab-router-app`.
+`./tab-router` from `~/tab-router-app`.
 
 ### Mac (Intel)
 
@@ -62,7 +65,6 @@ cd ~/tab-router-app
 curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-intel
 chmod +x tab-router
 xattr -d com.apple.quarantine tab-router
-./tab-router provider login
 ./tab-router --identities 2 --url https://example.com
 ```
 
@@ -74,7 +76,6 @@ Open **PowerShell**. Paste:
 New-Item -ItemType Directory -Force -Path $HOME\tab-router-app | Out-Null
 cd $HOME\tab-router-app
 Invoke-WebRequest -Uri https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-windows.exe -OutFile tab-router.exe
-.\tab-router.exe provider login
 .\tab-router.exe --identities 2 --url https://example.com
 ```
 
@@ -93,8 +94,8 @@ cd ~/tab-router-app
 On Windows, first `cd $HOME\tab-router-app`, then use `.\tab-router.exe`
 instead of `./tab-router`.
 
-`--fresh` makes a new browser identity set. It does not delete your Mullvad
-login.
+`--fresh` makes a new browser identity set. It does not change how routes
+are provisioned.
 
 You should see something like:
 
@@ -109,8 +110,8 @@ Isolation verification: PASSED
 
 ```
  tab-router (controller)
- ├─ Identity 001 ── Chromium #1 ──proxy──▶ Gate 001 ──▶ Route 001 (userspace WG) ──▶ egress IP-A
- └─ Identity 002 ── Chromium #2 ──proxy──▶ Gate 002 ──▶ Route 002 (userspace WG) ──▶ egress IP-B
+ ├─ Identity 001 ── Chromium #1 ──proxy──▶ Gate 001 ──▶ Route 001 (local Tor circuit) ──▶ egress IP-A
+ └─ Identity 002 ── Chromium #2 ──proxy──▶ Gate 002 ──▶ Route 002 (local Tor circuit) ──▶ egress IP-B
 ```
 
 * One Chromium process tree per identity, launched with a hardened flag set
@@ -118,10 +119,11 @@ Isolation verification: PASSED
 * The gate is a local SOCKS5 server that forwards only while its route is
   verified `READY`. When the route fails the gate refuses every request, so
   the browser shows a connection error instead of using the host network.
-  Chromium never sees WireGuard, relays, or credentials.
-* The route manager provisions one independent userspace WireGuard tunnel
-  per identity (no administrator rights, no host routing changes), verifies
-  connectivity and egress, and tears the tunnels down on exit.
+  Chromium never sees Tor, relays, or credentials.
+* On start, Tab Router downloads a pinned Tor Expert Bundle if needed and
+  provisions one independent circuit per identity (no administrator rights,
+  no host routing changes, no account). Traffic leaves through Tor; some
+  sites block it. That is the no-login way to get two different public IPs.
 * DNS is delegated through the route; the browser never resolves hostnames
   locally.
 * At startup nine checks (V1–V9) prove the isolation before any identity is
@@ -129,20 +131,17 @@ Isolation verification: PASSED
   terminal says so.
 
 Read [`docs/SCOPE.md`](docs/SCOPE.md) for the full requirements and
-[`docs/adr/0003-automatic-route-provisioning.md`](docs/adr/0003-automatic-route-provisioning.md)
-for why Mullvad + userspace WireGuard is the first provider.
+[`docs/adr/0004-local-automatic-exits.md`](docs/adr/0004-local-automatic-exits.md)
+for why the default path has no login.
 
 Extra commands (from `~/tab-router-app`, or `$HOME\tab-router-app` on Windows):
 
 ```sh
 ./tab-router --diagnostics
 ./tab-router --fresh
-./tab-router provider status
-./tab-router provider logout
 ```
 
-A `routes.toml` of your own SOCKS/HTTP proxies is optional and only used if
-you have not run `provider login`. See
+A `routes.toml` of your own SOCKS/HTTP proxies is optional. See
 [`docs/routes.example.toml`](docs/routes.example.toml).
 
 Exit codes: `0` ok · `1` usage/config · `2` verification failed · `3` route
@@ -184,8 +183,7 @@ legitimately exposes are used, and the point is stability, not disguise.
 
 ## Configuration
 
-`config.toml` lives in the data directory next to `provider.toml`. All keys
-are optional:
+`config.toml` lives in the data directory. All keys are optional:
 
 ```toml
 identities = 2
@@ -219,7 +217,6 @@ Building from source needs Go 1.22+. You do not need this to use Tab Router.
 git clone https://github.com/Nareik33L/tab-router && cd tab-router
 go run ./scripts/fetch-chromium
 go build -o bin/tab-router ./cmd/tab-router
-bin/tab-router provider login
 bin/tab-router --identities 2 --url https://example.com
 
 make vet
@@ -243,9 +240,10 @@ controller/health     runtime probes, fail-closed enforcement, leak alarms
 controller/browser    Chromium finder, launcher, CDP-over-pipe client, prefs
 controller/identity   identity sets, identity.json, environments
 controller/config     config.toml / optional routes.toml
-routing/manager       Provisioner (Mullvad, static fallback)
+routing/manager       Provisioner (local Tor by default, static/Mullvad overrides)
 routing/provider      Route, RoutingProvider, Gate
-routing/wireguard     userspace WireGuard (wireguard-go + netstack)
+routing/tor           pinned Tor Expert Bundle + local daemon
+routing/wireguard     userspace WireGuard (optional Mullvad override)
 routing/socks5        SOCKS5 client and CONNECT-only server
 routing/httpproxy     HTTP CONNECT client and server
 routing/platform      OS-specific: process tree, endpoint enumeration, IPC, file ACLs
@@ -258,9 +256,9 @@ docs/                 scope, engineering plan, ADRs, flag rationale, leak testin
 
 ## Security notes
 
-* Provider credentials live only in `provider.toml` (refused if readable by
-  other users) and never reach Chromium or the terminal. Optional
-  `routes.toml` is the same for bring-your-own upstreams.
+* There is no Tab Router account. Normal startup stores no cloud credentials.
+  Optional `routes.toml` (bring-your-own upstreams) is owner-only and is
+  redacted from logs.
 * The DevTools channel is a pipe, never a TCP port.
 * The control channel is a Unix socket / named pipe with a per-session
   random token.
