@@ -182,14 +182,17 @@ func (l *Local) Close() error {
 }
 
 func (l *Local) ensureBinary() error {
-	if l.Binary != "" {
-		return nil
+	if l.Binary == "" {
+		bin, err := tor.Install(torRoot(l.DataDir), l.log())
+		if err != nil {
+			return fmt.Errorf("local exits: %w", err)
+		}
+		l.Binary = bin
 	}
-	bin, err := tor.Install(torRoot(l.DataDir), l.log())
-	if err != nil {
+	// Sign the shared bundle once before two daemons start in parallel.
+	if err := tor.Prepare(l.Binary); err != nil {
 		return fmt.Errorf("local exits: %w", err)
 	}
-	l.Binary = bin
 	return nil
 }
 
