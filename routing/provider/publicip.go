@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,14 +41,72 @@ func ParseEchoBody(body []byte) (net.IP, error) {
 // dial. Redirects are followed; proxies from the environment are ignored.
 func HTTPClientFor(dial DialFunc, timeout time.Duration) *http.Client {
 	tr := &http.Transport{
-		Proxy:                 nil,
-		DialContext:           dial,
+		Proxy:       nil,
+		DialContext: dial,
+		// Handshake ourselves so ServerName is the echo hostname, not the
+		// local SOCKS address (127.0.0.1). On macOS that mismatch makes
+		// Security.framework fail with SecPolicyCreateSSL error: 0.
+		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return dialTLS(ctx, dial, network, addr)
+		},
 		ForceAttemptHTTP2:     false,
 		DisableKeepAlives:     true,
 		TLSHandshakeTimeout:   timeout,
 		ResponseHeaderTimeout: timeout,
 	}
 	return &http.Client{Transport: tr, Timeout: timeout}
+}
+
+func dialTLS(ctx context.Context, dial DialFunc, network, addr string) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	raw, err := dial(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+	cfg := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"}}
+	c := tls.Client(&remoteAddrConn{Conn: raw, remote: addr}, cfg)
+	if err := c.HandshakeContext(ctx); err != nil {
+		raw.Close()
+		if roots := extraRootCAs(); roots != nil && isSystemTLSVerifyBug(err) {
+			raw, err = dial(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			cfg2 := cfg.Clone()
+			cfg2.RootCAs = roots
+			c = tls.Client(&remoteAddrConn{Conn: raw, remote: addr}, cfg2)
+			if err := c.HandshakeContext(ctx); err != nil {
+				raw.Close()
+				return nil, err
+			}
+			return c, nil
+		}
+		return nil, err
+	}
+	return c, nil
+}
+
+type remoteAddrConn struct {
+	net.Conn
+	remote string
+}
+
+func (c *remoteAddrConn) RemoteAddr() net.Addr { return hostAddr(c.remote) }
+
+type hostAddr string
+
+func (a hostAddr) Network() string { return "tcp" }
+func (a hostAddr) String() string  { return string(a) }
+
+func isSystemTLSVerifyBug(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "SecPolicyCreateSSL")
 }
 
 // PublicIP fetches echoURL through dial and returns the reported address.
