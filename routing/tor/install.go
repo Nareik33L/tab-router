@@ -21,6 +21,9 @@ func Install(dest string, log io.Writer) (string, error) {
 		log = io.Discard
 	}
 	if p := Find(dest); p != "" {
+		if err := prepareExecutable(p); err != nil {
+			return "", err
+		}
 		return p, nil
 	}
 	pin := Pin()
@@ -62,6 +65,9 @@ func Install(dest string, log io.Writer) (string, error) {
 		}
 	}
 	if err := os.Chmod(bin, 0o755); err != nil {
+		return "", err
+	}
+	if err := prepareExecutable(bin); err != nil {
 		return "", err
 	}
 	fmt.Fprintf(log, "installed Tor %s\n  %s\n", pin.Version, bin)
