@@ -1,0 +1,23 @@
+# Build artifacts
+/bin/
+/dist/
+*.exe
+*.dmg
+*.msi
+
+# Secrets: never commit route definitions
+routes.toml
+*.routes.toml
+
+# Local data
+/data/
+/.tab-router/
+
+# Chromium downloads
+/browser/chromium/*/
+!/browser/chromium/pin.json
+
+# Test/coverage
+*.test
+*.out
+coverage.html
