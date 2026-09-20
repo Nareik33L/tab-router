@@ -1,6 +1,6 @@
-// Command fetch-chromium downloads the pinned Chromium build for this
-// platform (or --platform), verifies its SHA-256 against
-// browser/chromium/pin.json and extracts it under <data-dir>/chromium/<version>/
+// Command fetch-chromium downloads the pinned official Chromium snapshot
+// for this platform (or --platform), verifies its SHA-256 against
+// browser/chromium/pin.json and extracts it under <data-dir>/chromium/<revision>/
 // where tab-router looks for it.
 //
 //	go run ./scripts/fetch-chromium                 # into the default data dir

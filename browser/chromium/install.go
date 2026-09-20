@@ -36,6 +36,9 @@ func Install(dest, platformKey string, log io.Writer) (string, error) {
 	verDir := filepath.Join(dest, pin.Version)
 	bin := filepath.Join(verDir, filepath.FromSlash(p.Binary))
 	if _, err := os.Stat(bin); err == nil {
+		if err := prepareExecutable(bin); err != nil {
+			return "", err
+		}
 		fmt.Fprintf(log, "already present: %s\n", bin)
 		return bin, nil
 	}
@@ -63,7 +66,10 @@ func Install(dest, platformKey string, log io.Writer) (string, error) {
 	if _, err := os.Stat(bin); err != nil {
 		return "", fmt.Errorf("expected binary missing after extract: %s", bin)
 	}
-	fmt.Fprintf(log, "installed %s %s\n  %s\n", pin.Version, platformKey, bin)
+	if err := prepareExecutable(bin); err != nil {
+		return "", err
+	}
+	fmt.Fprintf(log, "installed Chromium snapshot %s %s\n  %s\n", pin.Version, platformKey, bin)
 	return bin, nil
 }
 

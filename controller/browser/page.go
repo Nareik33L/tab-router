@@ -78,7 +78,7 @@ func (b *Browser) attach(ctx context.Context, targetID string) (*Page, error) {
 }
 
 // waitReady waits until the tab has finished its initial about:blank load.
-// Navigating before that, especially on Windows Chrome for Testing, yields
+// Navigating before that, especially on Windows Chromium, yields
 // net::ERR_ABORTED and no proxy CONNECT.
 func (p *Page) waitReady(ctx context.Context) error {
 	deadline, cancel := context.WithTimeout(ctx, 5*time.Second)

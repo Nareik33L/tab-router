@@ -103,7 +103,8 @@ func bundledCandidates() []string {
 	case "darwin":
 		return []string{
 			"../Frameworks/Chromium.app/Contents/MacOS/Chromium",
-			"chromium/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+			"chromium/Chromium.app/Contents/MacOS/Chromium",
+			"chromium/chrome-mac/Chromium.app/Contents/MacOS/Chromium",
 		}
 	default:
 		return []string{"chromium/chrome"}
@@ -146,8 +147,8 @@ func LoadPin(path string) (*PinManifest, error) {
 }
 
 // Version runs the binary with --product-version (then --version) and
-// returns the trimmed output. Chrome for Testing on Windows can hang
-// forever on --version, so the call is bounded and the window is hidden.
+// returns the trimmed output. Chromium on Windows can hang forever on
+// --version, so the call is bounded and the window is hidden.
 func Version(binary string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()

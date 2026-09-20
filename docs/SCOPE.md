@@ -88,8 +88,8 @@ Everything else is platform-neutral.
 
 Use Chromium.
 
-* Ship a pinned Chromium (or Chrome for Testing) build with the application,
-  downloaded by version and SHA-256 at build time. **[v0.2]**
+* Ship a pinned official Chromium snapshot with the application,
+  downloaded by revision and SHA-256 at first run. **[v0.2]**
 * v0.1 uses a stock build with command-line flags only. No Chromium fork. The
   `browser/patches/` directory stays empty until a written ADR documents a need
   a flag cannot satisfy. **[v0.2]**

@@ -447,7 +447,7 @@ func ensureChromium(cfg config.Config) error {
 	if found, err := browser.Find(cfg.DataDir, pin); err == nil && found.Source != "system" {
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "Chromium not found; downloading pinned %s…\n", pin.Version)
+	fmt.Fprintf(os.Stderr, "Chromium not found; downloading official Chromium snapshot %s…\n", pin.Version)
 	_, err := chromium.Install(filepath.Join(cfg.DataDir, "chromium"), "", os.Stderr)
 	return err
 }

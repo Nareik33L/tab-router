@@ -13,7 +13,8 @@ Downloads: [latest GitHub Release](https://github.com/Nareik33L/tab-router/relea
 You need a Mac or a Windows PC, and **Terminal** (Mac) or **PowerShell**
 (Windows). There is nothing to sign up for.
 
-The first start downloads Chromium and a local network-exit helper (Tor).
+The first start downloads official Chromium (not Google Chrome) and a
+local network-exit helper (Tor). The windows are titled Chromium.
 Tab Router then asks how many identities and which URL, provisions one
 isolated route per identity, verifies them, and opens the browsers.
 
@@ -206,8 +207,9 @@ ip_check_interval_seconds = 60
 
 Data directory: `~/Library/Application Support/tab-router` (macOS),
 `%LOCALAPPDATA%\tab-router` (Windows); override with `--data-dir` or
-`TAB_ROUTER_DATA_DIR`. Chromium: the pinned build under
-`<data-dir>/chromium/<version>/`, or `TAB_ROUTER_CHROMIUM=/path/to/binary`.
+`TAB_ROUTER_DATA_DIR`. Chromium: the official snapshot pinned in
+`browser/chromium/pin.json`, stored under `<data-dir>/chromium/<revision>/`,
+or `TAB_ROUTER_CHROMIUM=/path/to/binary`.
 
 ## Development
 

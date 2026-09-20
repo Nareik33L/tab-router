@@ -15,7 +15,7 @@ the scope wins; open an ADR in `docs/adr/` if you need to deviate.
 | M5 protocol coverage (WebSocket, redirects, downloads, service worker) | done | `TestProtocolCoverage` in `tests/isolation` |
 | M6 health monitor, IPC, `--status/--stop/--diagnostics`, CLI | done | `controller/health`, `ipc`, `cmd/tab-router`, `TestRouteFailureBlocksAndRecovers` |
 | M7 platform: Windows named pipes/ACLs/iphlpapi, macOS lsof/ps | compiled and vetted for both; runtime pass pending in CI on `windows-latest` / `macos-latest` | `routing/platform/platform_{windows,darwin}.go` |
-| M8 pinned Chromium, fetch script, docs | done | `browser/chromium/pin.json` (Chrome for Testing 153.0.8010.52, SHA-256 per platform), `scripts/fetch-chromium`, `docs/chromium-flags.md`, `docs/leak-testing.md` |
+| M8 pinned Chromium, fetch script, docs | done | `browser/chromium/pin.json` (official Chromium snapshots, SHA-256 per platform), `scripts/fetch-chromium`, `docs/chromium-flags.md`, `docs/leak-testing.md` |
 | M9 lift the 2-identity cap | not started (by design) | `config.MaxIdentities = 2` |
 | Add-on: per-identity pinned environment | done | ADR-0002, `identity.Environment`, `TestEnvironmentApplied`, `TestPersistenceAndFresh` |
 | Add-on: automatic route provisioning | done | ADR-0003, ADR-0004, `routing/manager`, `routing/tor`; no login on the normal path |
@@ -81,7 +81,7 @@ per-process connection-table calls via `golang.org/x/sys`. If you choose Rust
 or another language, write ADR-0001 explaining how you cover the same ground.
 
 **D5 — Chromium is pinned and downloaded, not forked.** `browser/chromium/pin.json`
-holds version + SHA-256 per platform (Chromium snapshot or Chrome for Testing).
+holds snapshot revision + SHA-256 per platform (official Chromium browser snapshots).
 `scripts/fetch-chromium` verifies the checksum. `browser/patches/` stays empty
 until an ADR documents a need no flag can meet.
 

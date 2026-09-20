@@ -32,7 +32,7 @@ fmt:
 
 # Unit tests need no browser.
 test-unit:
-	$(GO) test ./controller/... ./routing/... ./ipc/... ./tests/routing/... -count=1
+	$(GO) test ./browser/... ./controller/... ./routing/... ./ipc/... ./tests/routing/... -count=1
 
 # Isolation and browser suites need a Chromium; set TAB_ROUTER_CHROMIUM or
 # run `make fetch-chromium` first.
