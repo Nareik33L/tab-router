@@ -1,32 +1,103 @@
 # Tab Router
 
-Terminal-driven, Chromium-based browser for Windows and macOS that runs
-several **persistent, isolated browsing identities** at once. Each identity
-has its own browser profile, its own device environment (locale, timezone,
-window, downloads) and its own network route with its own public IP.
-Traffic from one identity can never fall back to another route or to the
-host's normal connection: if a route is down, that identity is blocked.
+Two isolated Chromium browsers on one Mac or Windows PC. Each has its own
+cookies, window, and public IP. You do **not** need Go, and you do **not**
+need to create a `routes.toml` file.
 
-Status: **v0.1.0 — two-identity milestone with automatic route provisioning.**
-The identity count is capped at 2 until the isolation suite has been signed
-off (see [`docs/ENGINEERING_PLAN.md`](docs/ENGINEERING_PLAN.md), M9).
+Status: two identities, automatic routes. Cap stays at 2 until the isolation
+suite is signed off ([`docs/ENGINEERING_PLAN.md`](docs/ENGINEERING_PLAN.md), M9).
+Downloads: [latest GitHub Release](https://github.com/Nareik33L/tab-router/releases/latest).
 
-## Install from a GitHub Release
+## Quick start (Terminal, no Go)
 
-Download the binary for your platform from
-[Releases](https://github.com/Nareik33L/tab-router/releases):
+You need:
 
-| File | Platform |
-| --- | --- |
-| `tab-router-vX.Y.Z-windows-amd64.exe` | Windows 10/11 (x64) |
-| `tab-router-vX.Y.Z-darwin-arm64` | macOS Apple Silicon |
-| `tab-router-vX.Y.Z-darwin-amd64` | macOS Intel |
+1. A Mac or a Windows PC.
+2. A [Mullvad](https://mullvad.net) account (Tab Router cannot invent extra
+   public IPs; Mullvad provides two separate exits). Copy the account number
+   from the Mullvad website.
+3. **Terminal** on a Mac, or **PowerShell** on Windows.
 
-On first run the binary downloads the pinned Chromium into the data
-directory. One-time network setup is `tab-router provider login` (a Mullvad
-account, because two identities need two real public egress IPs). Unsigned
-builds: on macOS run `xattr -d com.apple.quarantine tab-router`; on Windows,
-allow the SmartScreen prompt.
+You will download a program, paste your Mullvad number once, then start.
+
+### Mac (Apple chip — M1, M2, M3, M4)
+
+Most Macs from 2020 onward. Check: Apple menu (top left) → **About This Mac**.
+If you see **Chip**, use this. If you see **Processor**, use the Intel block
+below.
+
+Open **Terminal** (Command-Space, type `Terminal`, press Enter). Paste the
+whole block, then press Enter:
+
+```sh
+cd ~
+curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-apple-silicon
+chmod +x tab-router
+xattr -d com.apple.quarantine tab-router
+./tab-router provider login
+```
+
+When it asks for an account number, paste your Mullvad number and press Enter.
+
+Then paste:
+
+```sh
+./tab-router --identities 2 --url https://example.com
+```
+
+The first run downloads Chromium. Two browser windows should open. You never
+create a route file.
+
+If macOS says the app is damaged or cannot be opened, run
+`xattr -d com.apple.quarantine tab-router` again from the same folder, then
+retry `./tab-router provider login`.
+
+### Mac (Intel)
+
+```sh
+cd ~
+curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-intel
+chmod +x tab-router
+xattr -d com.apple.quarantine tab-router
+./tab-router provider login
+./tab-router --identities 2 --url https://example.com
+```
+
+### Windows
+
+Open **PowerShell**. Paste:
+
+```powershell
+cd $HOME
+Invoke-WebRequest -Uri https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-windows.exe -OutFile tab-router.exe
+.\tab-router.exe provider login
+.\tab-router.exe --identities 2 --url https://example.com
+```
+
+If Windows SmartScreen appears, choose **More info** → **Run anyway**.
+
+### After it is running
+
+From a **second** Terminal / PowerShell window, in the same folder:
+
+```sh
+./tab-router --status
+./tab-router --stop
+```
+
+On Windows use `.\tab-router.exe` instead of `./tab-router`.
+
+`--fresh` makes a new browser identity set. It does not delete your Mullvad
+login.
+
+You should see something like:
+
+```
+TAB ROUTER READY
+Identity 001 → Route 001 → READY   …
+Identity 002 → Route 002 → READY   …
+Isolation verification: PASSED
+```
 
 ## How it works
 
@@ -55,67 +126,17 @@ Read [`docs/SCOPE.md`](docs/SCOPE.md) for the full requirements and
 [`docs/adr/0003-automatic-route-provisioning.md`](docs/adr/0003-automatic-route-provisioning.md)
 for why Mullvad + userspace WireGuard is the first provider.
 
-## Quick start (from source)
-
-Requirements: Go 1.22+ and a [Mullvad](https://mullvad.net) account.
+Extra commands (same folder as the program):
 
 ```sh
-git clone https://github.com/Nareik33L/tab-router && cd tab-router
-go run ./scripts/fetch-chromium          # downloads + verifies the pinned Chromium
-go build -o bin/tab-router ./cmd/tab-router
-
-bin/tab-router provider login            # one-time; paste the account number
-bin/tab-router --identities 2 --url https://example.com
+./tab-router --diagnostics
+./tab-router --fresh
+./tab-router provider status
+./tab-router provider logout
 ```
 
-Or, with a TTY and no flags, `bin/tab-router` prompts for the identity count
-and URL. `routes.toml` is not required.
-
-```
-TAB ROUTER v0.1.0
-Identities: 2   Startup URL: https://example.com
-Using identity set set-2026-09-20T14-18-36Z
-Creating Identity 001...
-Creating Identity 002...
-Browser: Chromium 153.0.8010.52 (pinned)
-Network provider: mullvad
-Provisioning network routes...
-Identity 001 → Route 001: CONNECTED ✓
-Identity 002 → Route 002: CONNECTED ✓
-Verifying network isolation...
-Identity 001 → Public IP: 203.0.113.10 ✓
-Identity 002 → Public IP: 198.51.100.7 ✓
-Identity 001 ≠ Identity 002 ≠ host ✓
-Verifying DNS routing... ✓
-Verifying IPv6 behaviour... ✓
-Verifying browser storage isolation... ✓
-Verifying fail-closed behaviour... ✓
-Verifying no direct connections... ✓
-Opening startup URL...
-Identity 001 → https://example.com ✓
-Identity 002 → https://example.com ✓
-================================
-TAB ROUTER READY
-================================
-Identity 001 → Route 001 → READY   203.0.113.10
-Identity 002 → Route 002 → READY   198.51.100.7
-Isolation verification: PASSED (9/9 checks per identity)
-```
-
-Other commands, from a second terminal:
-
-```sh
-bin/tab-router --status            # live state, health, environment per identity
-bin/tab-router --diagnostics       # re-run the isolation checks and print a report
-bin/tab-router --stop
-bin/tab-router --fresh             # new browser identity set; provider config is kept
-bin/tab-router provider status
-bin/tab-router provider logout     # removes local provider.toml only
-bin/tab-router route-check         # dev: public IP of each provisioned route
-```
-
-Power users can still drop a `routes.toml` of SOCKS5/HTTP upstreams in the
-data directory; it is used only when `provider.toml` is absent. See
+A `routes.toml` of your own SOCKS/HTTP proxies is optional and only used if
+you have not run `provider login`. See
 [`docs/routes.example.toml`](docs/routes.example.toml).
 
 Exit codes: `0` ok · `1` usage/config · `2` verification failed · `3` route
@@ -186,11 +207,17 @@ Data directory: `~/Library/Application Support/tab-router` (macOS),
 ## Development
 
 Linux is a development/CI host only; product platforms are Windows and macOS.
+Building from source needs Go 1.22+. You do not need this to use Tab Router.
 
 ```sh
-make vet          # go vet for linux, windows and darwin
-make test-unit    # no browser needed
-make infra        # local test network: IP echo + two proxies with distinct source IPs
+git clone https://github.com/Nareik33L/tab-router && cd tab-router
+go run ./scripts/fetch-chromium
+go build -o bin/tab-router ./cmd/tab-router
+bin/tab-router provider login
+bin/tab-router --identities 2 --url https://example.com
+
+make vet
+make test-unit
 make test-isolation   # needs TAB_ROUTER_CHROMIUM or `make fetch-chromium`
 ```
 

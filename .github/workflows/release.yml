@@ -32,24 +32,38 @@ jobs:
           generate_release_notes: true
           files: dist/*
           body: |
-            Tab Router **${{ github.ref_name }}** — two isolated Chromium identities, each with its own persistent profile, device environment and network route.
+            Tab Router **${{ github.ref_name }}** — two isolated Chromium windows, each with its own profile and public IP.
 
-            ### Install
+            You do **not** need Go. You do **not** need a `routes.toml` file.
 
-            1. Download the binary for your OS from this release.
-            2. Run the binary once; it fetches the pinned Chromium into the data directory.
-            3. One-time network setup (a Mullvad account; two identities need two public IPs):
+            You need a [Mullvad](https://mullvad.net) account number.
 
-            ```
-            tab-router provider login
-            ```
+            ### Mac (Apple chip — M1, M2, M3, M4)
 
-            4. Start:
+            Open Terminal, paste this, press Enter:
 
             ```
-            tab-router --identities 2 --url https://example.com
+            cd ~
+            curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-apple-silicon
+            chmod +x tab-router
+            xattr -d com.apple.quarantine tab-router
+            ./tab-router provider login
+            ./tab-router --identities 2 --url https://example.com
             ```
 
-            `routes.toml` is not required. Product platforms: **Windows amd64**, **macOS Apple Silicon**, **macOS Intel**. Linux is a development/CI host only.
+            Apple menu → About This Mac: if you see **Processor** (Intel) instead of **Chip**, download `tab-router-mac-intel` in the `curl` line.
 
-            Unsigned builds — macOS Gatekeeper will ask you to allow the binary (`xattr -d com.apple.quarantine tab-router`). Windows SmartScreen the same.
+            ### Windows
+
+            Open PowerShell, paste this:
+
+            ```
+            cd $HOME
+            Invoke-WebRequest -Uri https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-windows.exe -OutFile tab-router.exe
+            .\tab-router.exe provider login
+            .\tab-router.exe --identities 2 --url https://example.com
+            ```
+
+            If SmartScreen appears: More info → Run anyway.
+
+            The first start downloads Chromium. Versioned files (`tab-router-v…-darwin-arm64` and so on) are also attached.

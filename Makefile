@@ -11,11 +11,16 @@ build:
 	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/tab-router ./cmd/tab-router
 
 # Product targets: Windows and macOS. Linux is a dev/CI host only.
+# Stable names (tab-router-mac-apple-silicon, etc.) are what
+# …/releases/latest/download/… serves, so the README never needs a version number.
 build-all:
 	mkdir -p $(BIN)
 	GOOS=windows GOARCH=amd64 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/tab-router-$(VERSION)-windows-amd64.exe ./cmd/tab-router
 	GOOS=darwin  GOARCH=arm64 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/tab-router-$(VERSION)-darwin-arm64 ./cmd/tab-router
 	GOOS=darwin  GOARCH=amd64 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/tab-router-$(VERSION)-darwin-amd64 ./cmd/tab-router
+	cp $(BIN)/tab-router-$(VERSION)-windows-amd64.exe $(BIN)/tab-router-windows.exe
+	cp $(BIN)/tab-router-$(VERSION)-darwin-arm64 $(BIN)/tab-router-mac-apple-silicon
+	cp $(BIN)/tab-router-$(VERSION)-darwin-amd64 $(BIN)/tab-router-mac-intel
 
 vet:
 	$(GO) vet ./...
