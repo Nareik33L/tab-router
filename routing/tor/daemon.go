@@ -2,6 +2,7 @@ package tor
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -17,7 +18,12 @@ import (
 	"time"
 )
 
-const bootstrapTimeout = 3 * time.Minute
+const (
+	bootstrapTimeout  = 3 * time.Minute
+	cookieLen         = 32
+	authAttempts      = 8
+	cookieWaitTimeout = 10 * time.Second
+)
 
 var socksListenerRe = regexp.MustCompile(`(?:127\.0\.0\.1|\[::1\]):(\d+)`)
 
@@ -47,10 +53,12 @@ func (d *Daemon) Start(ctx context.Context) error {
 		d.Log = io.Discard
 	}
 	session := filepath.Join(d.DataDir, "session")
-	if err := os.MkdirAll(session, 0o700); err != nil {
+	// Drop the previous control socket and cookie. A leftover 32-byte
+	// cookie from the last run authenticates against this process and
+	// fails with "Got mismatched authentication cookie".
+	if err := resetSession(session); err != nil {
 		return err
 	}
-	_ = os.Remove(filepath.Join(session, "control"))
 
 	torrc := filepath.Join(session, "torrc")
 	if err := os.WriteFile(torrc, []byte(d.torrc(session)), 0o600); err != nil {
@@ -99,6 +107,7 @@ func (d *Daemon) torrc(session string) string {
 	fmt.Fprintf(&b, "DataDirectory %s\n", quotePath(session))
 	fmt.Fprintf(&b, "SocksPort auto IsolateSOCKSAuth IsolateDestAddr\n")
 	fmt.Fprintf(&b, "CookieAuthentication 1\n")
+	fmt.Fprintf(&b, "CookieAuthFile %s\n", quotePath(filepath.Join(session, "control_auth_cookie")))
 	fmt.Fprintf(&b, "AvoidDiskWrites 1\n")
 	fmt.Fprintf(&b, "SafeLogging 1\n")
 	fmt.Fprintf(&b, "Log notice stdout\n")
@@ -119,34 +128,53 @@ func (d *Daemon) torrc(session string) string {
 }
 
 func (d *Daemon) waitBootstrap(ctx context.Context, session string) error {
-	conn, err := d.dialControl(ctx, session)
-	if err != nil {
-		return d.fail(session, "tor control port did not open: %v", err)
-	}
-	cookiePath := filepath.Join(session, "control_auth_cookie")
-	var cookie []byte
-	for i := 0; i < 50; i++ {
-		cookie, err = os.ReadFile(cookiePath)
-		if err == nil && len(cookie) > 0 {
-			break
-		}
+	fallbackCookie := filepath.Join(session, "control_auth_cookie")
+	var last error
+	for attempt := 0; attempt < authAttempts; attempt++ {
 		if err := d.checkExited(); err != nil {
-			conn.Close()
 			return d.fail(session, "tor exited before control cookie appeared: %v", err)
 		}
-		time.Sleep(100 * time.Millisecond)
+		conn, err := d.dialControl(ctx, session)
+		if err != nil {
+			return d.fail(session, "tor control port did not open: %v", err)
+		}
+		r := bufio.NewReader(conn)
+		cookiePath := fallbackCookie
+		if info, err := controlCmd(conn, r, "PROTOCOLINFO 1"); err == nil {
+			if p := parseCookieFile(info); p != "" {
+				cookiePath = p
+			}
+		}
+		cookie, err := waitAuthCookie(ctx, cookiePath)
+		if err != nil {
+			_ = conn.Close()
+			last = err
+			if err := d.checkExited(); err != nil {
+				return d.fail(session, "tor exited before control cookie appeared: %v", err)
+			}
+			time.Sleep(150 * time.Millisecond)
+			continue
+		}
+		if _, err := controlCmd(conn, r, "AUTHENTICATE "+hex.EncodeToString(cookie)); err != nil {
+			_ = conn.Close()
+			last = err
+			if !authCookieMismatch(err) {
+				return d.fail(session, "tor authenticate: %v", err)
+			}
+			time.Sleep(150 * time.Millisecond)
+			continue
+		}
+		d.ctrl = conn
+		d.ctrlR = r
+		last = nil
+		break
 	}
-	if len(cookie) == 0 {
-		conn.Close()
-		return d.fail(session, "tor control cookie missing")
+	if d.ctrl == nil {
+		if last == nil {
+			last = fmt.Errorf("no control connection")
+		}
+		return d.fail(session, "tor authenticate: %v", last)
 	}
-	r := bufio.NewReader(conn)
-	if _, err := controlCmd(conn, r, "AUTHENTICATE "+hex.EncodeToString(cookie)); err != nil {
-		conn.Close()
-		return d.fail(session, "tor authenticate: %v", err)
-	}
-	d.ctrl = conn
-	d.ctrlR = r
 	socks, err := controlCmd(d.ctrl, d.ctrlR, "GETINFO net/listeners/socks")
 	if err != nil {
 		return d.fail(session, "tor socks listener: %v", err)
@@ -296,6 +324,58 @@ func controlCmd(conn net.Conn, r *bufio.Reader, cmd string) (string, error) {
 			return "", fmt.Errorf("%s", line)
 		}
 	}
+}
+
+func resetSession(session string) error {
+	_ = os.RemoveAll(session)
+	return os.MkdirAll(session, 0o700)
+}
+
+var cookieFileRe = regexp.MustCompile(`COOKIEFILE="([^"]+)"`)
+
+func parseCookieFile(protocolInfo string) string {
+	m := cookieFileRe.FindStringSubmatch(protocolInfo)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+func waitAuthCookie(ctx context.Context, path string) ([]byte, error) {
+	deadline := time.Now().Add(cookieWaitTimeout)
+	var last error
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		b, err := os.ReadFile(path)
+		switch {
+		case err != nil:
+			last = err
+		case len(b) != cookieLen:
+			last = fmt.Errorf("cookie length %d, want %d", len(b), cookieLen)
+		default:
+			time.Sleep(50 * time.Millisecond)
+			b2, err := os.ReadFile(path)
+			if err == nil && len(b2) == cookieLen && bytes.Equal(b, b2) {
+				return b2, nil
+			}
+			last = fmt.Errorf("control cookie still being written")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if last == nil {
+		last = fmt.Errorf("timed out")
+	}
+	return nil, last
+}
+
+func authCookieMismatch(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "515") || strings.Contains(s, "cookie")
 }
 
 func parseSocksListener(info string) (string, error) {
