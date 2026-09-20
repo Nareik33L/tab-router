@@ -92,7 +92,24 @@ func Launch(ctx context.Context, opts LaunchOptions) (*Browser, error) {
 		_ = b.Kill()
 		return nil, fmt.Errorf("browser: apply environment: %w", err)
 	}
+	if opts.DownloadDir != "" {
+		if err := b.SetDownloadDir(hctx, opts.DownloadDir); err != nil {
+			_ = b.Kill()
+			return nil, fmt.Errorf("browser: download dir: %w", err)
+		}
+	}
 	return b, nil
+}
+
+// SetDownloadDir forces every download in this browser into dir, without
+// prompting, regardless of profile settings.
+func (b *Browser) SetDownloadDir(ctx context.Context, dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return b.cdp.Call(ctx, "", "Browser.setDownloadBehavior", map[string]any{
+		"behavior": "allow", "downloadPath": dir, "eventsEnabled": true,
+	}, nil)
 }
 
 // EnvironmentFlags translates the pinned environment into Chromium flags.

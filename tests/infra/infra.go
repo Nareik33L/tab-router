@@ -12,9 +12,13 @@
 package infra
 
 import (
+	"bufio"
 	"context"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -269,5 +273,109 @@ func (in *Infra) handler() http.Handler {
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprint(w, `<!doctype html><title>store</title><body>store</body>`)
 	})
+	// /ws: minimal RFC 6455 echo. Replies to the first text frame with
+	// "<client-ip>:<payload>" so the test can see which route carried it.
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		ip := record(r)
+		if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			http.Error(w, "expected websocket upgrade", http.StatusBadRequest)
+			return
+		}
+		key := r.Header.Get("Sec-WebSocket-Key")
+		h := sha1.Sum([]byte(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "no hijack", http.StatusInternalServerError)
+			return
+		}
+		conn, rw, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		fmt.Fprintf(rw, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n",
+			base64.StdEncoding.EncodeToString(h[:]))
+		_ = rw.Flush()
+		payload, err := readWSFrame(rw)
+		if err != nil {
+			return
+		}
+		_ = writeWSText(rw, ip+":"+string(payload))
+	})
+	// /sw: page that registers /sw.js; the worker fetches /sw-fetch on
+	// install so the hit is attributable to the service worker context.
+	mux.HandleFunc("/sw", func(w http.ResponseWriter, r *http.Request) {
+		record(r)
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!doctype html><title>sw</title><body><script>
+window.swState = "pending";
+navigator.serviceWorker.register("/sw.js").then(reg => {
+  const sw = reg.installing || reg.waiting || reg.active;
+  const done = () => { window.swState = "activated"; };
+  if (sw && sw.state === "activated") done();
+  else if (sw) sw.addEventListener("statechange", () => { if (sw.state === "activated") done(); });
+}).catch(e => { window.swState = "error:" + e; });
+</script>sw</body>`)
+	})
+	mux.HandleFunc("/sw.js", func(w http.ResponseWriter, r *http.Request) {
+		record(r)
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "no-store")
+		fmt.Fprint(w, `self.addEventListener("install", e => { e.waitUntil(fetch("/sw-fetch").then(r => r.text())); self.skipWaiting(); });
+self.addEventListener("activate", e => e.waitUntil(self.clients.claim()));`)
+	})
+	mux.HandleFunc("/sw-fetch", func(w http.ResponseWriter, r *http.Request) {
+		ip := record(r)
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintln(w, ip)
+	})
 	return mux
+}
+
+func readWSFrame(r *bufio.ReadWriter) ([]byte, error) {
+	hdr := make([]byte, 2)
+	if _, err := io.ReadFull(r, hdr); err != nil {
+		return nil, err
+	}
+	masked := hdr[1]&0x80 != 0
+	n := int(hdr[1] & 0x7f)
+	switch n {
+	case 126:
+		ext := make([]byte, 2)
+		if _, err := io.ReadFull(r, ext); err != nil {
+			return nil, err
+		}
+		n = int(ext[0])<<8 | int(ext[1])
+	case 127:
+		return nil, fmt.Errorf("frame too large")
+	}
+	var mask [4]byte
+	if masked {
+		if _, err := io.ReadFull(r, mask[:]); err != nil {
+			return nil, err
+		}
+	}
+	payload := make([]byte, n)
+	if _, err := io.ReadFull(r, payload); err != nil {
+		return nil, err
+	}
+	if masked {
+		for i := range payload {
+			payload[i] ^= mask[i%4]
+		}
+	}
+	return payload, nil
+}
+
+func writeWSText(w *bufio.ReadWriter, s string) error {
+	if len(s) > 125 {
+		s = s[:125]
+	}
+	if _, err := w.Write([]byte{0x81, byte(len(s))}); err != nil {
+		return err
+	}
+	if _, err := w.WriteString(s); err != nil {
+		return err
+	}
+	return w.Flush()
 }

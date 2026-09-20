@@ -179,13 +179,13 @@ func (s *Server) handle(c net.Conn) {
 		s.OnRequest(req)
 	}
 	if head[1] != CmdConnect {
-		_ = s.reply(c, RepCommandNotSupported)
 		s.result(req, RepCommandNotSupported, fmt.Errorf("socks5: command %d refused", head[1]))
+		_ = s.reply(c, RepCommandNotSupported)
 		return
 	}
 	if s.Refuse != nil && s.Refuse() {
-		_ = s.reply(c, RepGeneralFailure)
 		s.result(req, RepGeneralFailure, ErrRefused)
+		_ = s.reply(c, RepGeneralFailure)
 		return
 	}
 
@@ -194,16 +194,17 @@ func (s *Server) handle(c net.Conn) {
 	cancel()
 	if err != nil {
 		code := replyCodeFor(err)
-		_ = s.reply(c, code)
 		s.result(req, code, err)
+		_ = s.reply(c, code)
 		return
 	}
 	defer upstream.Close()
+	// Record before replying so an observer that reacts to the client's
+	// view of the reply always finds the event already logged.
+	s.result(req, RepSuccess, nil)
 	if err := s.reply(c, RepSuccess); err != nil {
-		s.result(req, RepGeneralFailure, err)
 		return
 	}
-	s.result(req, RepSuccess, nil)
 	_ = c.SetDeadline(time.Time{})
 	pipe(c, upstream)
 }

@@ -1,0 +1,14 @@
+# Tab Router upstream routes. One [[route]] per identity slot, in order.
+# Keep this file private (chmod 600 / owner-only ACL). Never commit it.
+
+[[route]]
+id = "route-001"
+type = "socks5"                      # socks5 | http
+address = "proxy-a.example.net:1080"
+username = "alice"
+password_env = "TR_ROUTE_001_PASSWORD"   # or: password = "..."
+
+[[route]]
+id = "route-002"
+type = "http"
+address = "proxy-b.example.net:3128"

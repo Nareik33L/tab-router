@@ -1,0 +1,80 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Logic, routing and the full isolation suite run on Linux (dev/CI host).
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: vet (linux, windows, darwin)
+        run: make vet
+      - name: unit tests
+        run: make test-unit
+      - name: fetch pinned Chromium
+        run: go run ./scripts/fetch-chromium --dest "$RUNNER_TEMP/chromium"
+      - name: isolation suite
+        env:
+          TAB_ROUTER_CHROMIUM: ${{ runner.temp }}/chromium/153.0.8010.52/chrome-linux64/chrome
+        run: make test-isolation
+      - name: cross-build product binaries
+        run: make build-all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: bin/
+
+  # Product platforms: build, unit tests, pinned Chromium fetch + checksum,
+  # and a headless two-identity smoke start against the test network.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./controller/... ./routing/... ./ipc/... ./tests/routing/... -count=1
+      - run: go build -o bin/tab-router.exe ./cmd/tab-router
+      - name: fetch pinned Chromium
+        run: go run ./scripts/fetch-chromium --dest "$env:RUNNER_TEMP\chromium"
+      - name: two-identity smoke start (headless)
+        shell: pwsh
+        env:
+          TAB_ROUTER_CHROMIUM: ${{ runner.temp }}\chromium\153.0.8010.52\chrome-win64\chrome.exe
+          TAB_ROUTER_REQUIRE_CHROMIUM: "1"
+        run: go test ./tests/browser/... ./tests/isolation/... -count=1 -v -run 'TestBrowserEgressThroughGate|TestStartupPassesAllChecks'
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./controller/... ./routing/... ./ipc/... ./tests/routing/... -count=1
+      - run: go build -o bin/tab-router ./cmd/tab-router
+      - name: loopback aliases for the test network
+        run: |
+          sudo ifconfig lo0 alias 127.0.0.2 up
+          sudo ifconfig lo0 alias 127.0.0.3 up
+      - name: fetch pinned Chromium
+        run: go run ./scripts/fetch-chromium --dest "$RUNNER_TEMP/chromium"
+      - name: isolation suite (headless)
+        env:
+          TAB_ROUTER_CHROMIUM: ${{ runner.temp }}/chromium/153.0.8010.52/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing
+          TAB_ROUTER_REQUIRE_CHROMIUM: "1"
+        run: go test ./tests/browser/... ./tests/isolation/... -count=1 -v

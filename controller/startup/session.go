@@ -39,6 +39,8 @@ type Options struct {
 	ChromiumStderr *os.File
 	// RouteDefs overrides loading routes.toml (tests).
 	RouteDefs []provider.RouteDef
+	// ChromiumExtraArgs are appended to every launch (tests only).
+	ChromiumExtraArgs []string
 }
 
 // Session is a running set of identities.
@@ -194,6 +196,7 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 			Environment: sub.Identity.Environment,
 			DownloadDir: sub.Identity.DownloadPath(),
 			Stderr:      opts.ChromiumStderr,
+			ExtraArgs:   opts.ChromiumExtraArgs,
 		})
 		if err != nil {
 			sub.Gate.Close()

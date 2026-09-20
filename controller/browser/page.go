@@ -216,10 +216,23 @@ type Cookie struct {
 
 // SetCookie stores a cookie for url in this browser's profile.
 func (p *Page) SetCookie(ctx context.Context, url, name, value string) error {
+	return p.setCookie(ctx, url, name, value, 0)
+}
+
+// SetPersistentCookie sets a cookie that survives browser restarts.
+func (p *Page) SetPersistentCookie(ctx context.Context, url, name, value string, ttl time.Duration) error {
+	return p.setCookie(ctx, url, name, value, ttl)
+}
+
+func (p *Page) setCookie(ctx context.Context, url, name, value string, ttl time.Duration) error {
 	var res struct {
 		Success bool `json:"success"`
 	}
-	err := p.b.cdp.Call(ctx, p.SessionID, "Network.setCookie", map[string]any{"url": url, "name": name, "value": value}, &res)
+	params := map[string]any{"url": url, "name": name, "value": value}
+	if ttl > 0 {
+		params["expires"] = float64(time.Now().Add(ttl).Unix())
+	}
+	err := p.b.cdp.Call(ctx, p.SessionID, "Network.setCookie", params, &res)
 	if err != nil {
 		return err
 	}

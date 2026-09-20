@@ -1,0 +1,31 @@
+# Tab Router configuration (non-secret). Routes live in routes.toml.
+identities = 2
+startup_url = ""
+persistent_identities = true
+fail_closed = true
+ipv6 = true
+headless = false
+
+[verify]
+ip_echo_url = "https://api.ipify.org?format=json"
+ipv6_echo_url = "https://api6.ipify.org?format=json"
+compare_host_ip = true
+timeout_seconds = 20
+
+[health]
+probe_interval_seconds = 10
+ip_check_interval_seconds = 60
+
+# Defaults for identities created from now on. Empty = detect from host once.
+[environment]
+locale = ""
+timezone = ""
+window = "1280x860"
+device_scale_factor = 1.0
+color_scheme = "light"
+
+# Per-identity overrides, applied only when that identity is first created.
+# [[identity]]
+# index = 2
+# locale = "de-DE"
+# timezone = "Europe/Berlin"

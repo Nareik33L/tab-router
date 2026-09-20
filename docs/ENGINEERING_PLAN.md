@@ -3,6 +3,26 @@
 Companion to `docs/SCOPE.md`. This is the build order. Where the two disagree,
 the scope wins; open an ADR in `docs/adr/` if you need to deviate.
 
+## Implementation status
+
+| Milestone | State | Evidence |
+| --- | --- | --- |
+| M0 skeleton, CI, ADR template | done | `Makefile`, `.github/workflows/ci.yml`, `docs/adr/` |
+| M1 launch one hardened Chromium via CDP pipe; identity sets | done | `controller/browser`, `controller/identity`, `tests/browser` |
+| M2 routing layer: SOCKS5/HTTP dialers, Route state machine, Gate | done | `routing/*`, `tests/routing` (gate refuses when CLOSED, kills tunnels) |
+| M3 two identities, two IPs, startup verification V1–V3 | done | `controller/verify`, `TestStartupPassesAllChecks` |
+| M4 V4–V9, terminal contract, abort semantics | done | `controller/startup`, `TestVerificationFailureAbortsSafely` |
+| M5 protocol coverage (WebSocket, redirects, downloads, service worker) | done | `TestProtocolCoverage` in `tests/isolation` |
+| M6 health monitor, IPC, `--status/--stop/--diagnostics`, CLI | done | `controller/health`, `ipc`, `cmd/tab-router`, `TestRouteFailureBlocksAndRecovers` |
+| M7 platform: Windows named pipes/ACLs/iphlpapi, macOS lsof/ps | compiled and vetted for both; runtime pass pending in CI on `windows-latest` / `macos-latest` | `routing/platform/platform_{windows,darwin}.go` |
+| M8 pinned Chromium, fetch script, docs | done | `browser/chromium/pin.json` (Chrome for Testing 153.0.8010.52, SHA-256 per platform), `scripts/fetch-chromium`, `docs/chromium-flags.md`, `docs/leak-testing.md` |
+| M9 lift the 2-identity cap | not started (by design) | `config.MaxIdentities = 2` |
+| Add-on: per-identity pinned environment | done | ADR-0002, `identity.Environment`, `TestEnvironmentApplied`, `TestPersistenceAndFresh` |
+
+Remaining before a v0.1 tag: run the isolation suite on real Windows and
+macOS hosts (CI jobs are defined), the manual `docs/leak-testing.md` pass
+with a packet capture, and code signing.
+
 ## 0. Read this first
 
 You are building a privacy tool whose entire value is a provable statement:

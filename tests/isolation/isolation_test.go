@@ -264,7 +264,7 @@ func TestPersistenceAndFresh(t *testing.T) {
 	if res, err := page.Navigate(ctx, h.in.EchoURL()+"store"); err != nil || res.Blocked() {
 		t.Fatalf("navigate: %v %+v", err, res)
 	}
-	if err := page.SetCookie(ctx, h.in.EchoURL(), "persist", "yes"); err != nil {
+	if err := page.SetPersistentCookie(ctx, h.in.EchoURL(), "persist", "yes", 24*time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	if err := page.Evaluate(ctx, `localStorage.setItem("persist","yes")`, nil); err != nil {
