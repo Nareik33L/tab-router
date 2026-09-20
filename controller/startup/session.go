@@ -424,6 +424,10 @@ func (s *Session) verifyAll(ctx context.Context, o verify.Options) bool {
 		rep.Phase("Verifying browser storage isolation...", ok, details)
 	}
 	phase("Verifying fail-closed behaviour...", func(sub *verify.Subject) verify.Check { return verify.V7FailClosed(ctx, sub, o) })
+	if !verify.V3Separation(s.subjects, o) {
+		allOK = false
+		rep.Phase("Re-checking egress separation after fail-closed...", false, []string{"identities share an IP or match the host after resume"})
+	}
 	phase("Verifying no direct connections...", func(sub *verify.Subject) verify.Check { return verify.V8NoDirect(sub, o) })
 	return allOK
 }
@@ -433,16 +437,23 @@ func (s *Session) failAndAbort(ctx context.Context) {
 	rep := s.Report
 	for _, sub := range s.subjects {
 		var failed []string
+		var details []string
 		seen := map[string]bool{}
 		for _, c := range sub.Results {
 			if !c.Passed && !seen[c.ID] {
 				seen[c.ID] = true
 				failed = append(failed, c.ID+" "+c.Name)
+				if c.Detail != "" {
+					details = append(details, c.ID+": "+c.Detail)
+				}
 			}
 		}
 		if len(failed) > 0 {
 			rep.Result(sub.Label(), "Network verification", "FAILED ("+strings.Join(failed, ", ")+")", false)
 			rep.Line("ERROR: %s could not be verified as isolated.", sub.Label())
+			for _, d := range details {
+				rep.Line("  %s", d)
+			}
 		}
 	}
 	rep.Line("The identities will NOT use the host/default network.")

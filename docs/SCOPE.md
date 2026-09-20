@@ -486,7 +486,7 @@ Per identity (V1–V9) and cross-identity (V3):
 | V4 | DNS delegation | Gate saw CONNECT for echo hostname with DOMAINNAME; zero IP-literal CONNECTs for hostname navigations | true |
 | V5 | IPv6 | Navigate to `ipv6_echo_url` | route IPv6 (≠ host IPv6) **or** blocked; never host IPv6 |
 | V6 | Storage isolation | Set cookie + localStorage in 001 on echo origin; read in 002; compare profile realpaths | absent in 002; paths distinct |
-| V7 | Fail-closed | Gate forced DOWN; navigate; then restore; navigate | error while down; success and same IP after restore |
+| V7 | Fail-closed | Gate forced DOWN; navigate; then restore; navigate | error while down; success through the same gate after restore (Tor exit may rotate; must not become the host IP) |
 | V8 | No direct connections | Platform provider enumerates remote endpoints of the identity's process tree throughout V2–V7 | only `127.0.0.1:<gate>` |
 | V9 | Startup URL | After open, CDP main-frame response received; gate saw CONNECT to URL host for that identity | true (M4+) |
 

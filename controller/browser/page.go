@@ -137,6 +137,8 @@ func (p *Page) Navigate(ctx context.Context, url string) (NavResult, error) {
 }
 
 func transientNavError(s string) bool {
+	// ERR_FAILED is how Chromium reports a reset keep-alive after we tore
+	// down gate tunnels; the next attempt usually succeeds.
 	return strings.Contains(s, "ERR_ABORTED") || strings.Contains(s, "ERR_FAILED")
 }
 
@@ -158,6 +160,17 @@ func (p *Page) navigateOnce(ctx context.Context, url string) (NavResult, error) 
 		res.ErrorText = nav.ErrorText
 		res.Duration = time.Since(start)
 		return res, nil
+	}
+	var docErr string
+	finish := func() NavResult {
+		res.Duration = time.Since(start)
+		if res.FinalURL == "" {
+			res.FinalURL, _ = p.URL(ctx)
+		}
+		if res.ErrorText == "" && isErrorPageURL(res.FinalURL) {
+			res.ErrorText = firstNonEmpty(docErr, "net::ERR_FAILED")
+		}
+		return res
 	}
 	for {
 		select {
@@ -188,20 +201,48 @@ func (p *Page) navigateOnce(ctx context.Context, url string) (NavResult, error) 
 					Type      string `json:"type"`
 					Canceled  bool   `json:"canceled"`
 				}
-				if json.Unmarshal(ev.Params, &f) == nil && f.Type == "Document" && !f.Canceled {
+				if json.Unmarshal(ev.Params, &f) == nil && f.Type == "Document" && f.ErrorText != "" {
+					// A canceled failure is usually the previous document
+					// being aborted for this navigate. Keep waiting for the
+					// new load (or an error page).
+					if f.Canceled {
+						docErr = f.ErrorText
+						break
+					}
 					res.ErrorText = f.ErrorText
-					res.Duration = time.Since(start)
-					return res, nil
+					return finish(), nil
+				}
+			case "Page.frameNavigated":
+				var f struct {
+					Frame struct {
+						ID  string `json:"id"`
+						URL string `json:"url"`
+					} `json:"frame"`
+				}
+				if json.Unmarshal(ev.Params, &f) == nil && f.Frame.ID == nav.FrameID {
+					res.FinalURL = f.Frame.URL
 				}
 			case "Page.loadEventFired":
-				res.Duration = time.Since(start)
-				if res.FinalURL == "" {
-					res.FinalURL, _ = p.URL(ctx)
-				}
-				return res, nil
+				return finish(), nil
 			}
 		}
 	}
+}
+
+func isErrorPageURL(u string) bool {
+	u = strings.ToLower(u)
+	return strings.HasPrefix(u, "chrome-error:") ||
+		strings.HasPrefix(u, "chrome://network-error") ||
+		strings.Contains(u, "chromewebdata")
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // URL returns the page's current URL.

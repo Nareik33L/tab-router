@@ -212,7 +212,7 @@ The startup URL is passed via CDP `Page.navigate`, never on the command line.
 | V4 | DNS delegation | gate events for echo hostname have `DOMAINNAME`; no IP-literal CONNECT for hostname navigations | true |
 | V5 | IPv6 | CDP tab → `ipv6_echo_url` | route IPv6 ≠ host IPv6, **or** blocked; never host IPv6 |
 | V6 | Storage isolation | set cookie + localStorage in 001 on echo origin; read in 002; compare profile realpaths | absent in 002; distinct paths |
-| V7 | Fail-closed | `Gate.Close()`; navigate → expect net error; `Gate.Open()`; navigate → success, same IP | both hold |
+| V7 | Fail-closed | `Gate.Close()`; navigate → expect net error; `Gate.Open()`; navigate → success through the same gate (Tor exit may rotate; never the host IP) | both hold |
 | V8 | No direct connections | PlatformProvider samples the identity's process-tree remote endpoints throughout V2–V7 | only `127.0.0.1:<gate>` |
 | V9 | Startup URL | after `Page.navigate`, main-frame response received and gate saw CONNECT to the URL host from that identity | true |
 

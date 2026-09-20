@@ -415,33 +415,36 @@ func V6StorageIsolation(ctx context.Context, a, b *Subject, o Options) (Check, C
 }
 
 // V7FailClosed closes the gate, proves navigation fails, reopens it and
-// proves navigation resumes with the same egress IP.
+// proves navigation resumes through the same gate. Tor exits may rotate
+// after streams are torn down; a new non-host IP is accepted.
 func V7FailClosed(ctx context.Context, s *Subject, o Options) Check {
 	start := time.Now()
 	c := Check{ID: "V7", Name: "fail-closed"}
 	defer func() { c.Duration = time.Since(start) }()
-	ctx, cancel := context.WithTimeout(ctx, 2*o.timeout())
-	defer cancel()
 
 	s.Gate.Close()
-	res, err := s.Page.Navigate(ctx, cacheBust(o.EchoURL))
+	blockCtx, blockCancel := context.WithTimeout(ctx, o.timeout())
+	res, err := s.Page.Navigate(blockCtx, cacheBust(o.EchoURL))
+	blockCancel()
 	if err == nil && !res.Blocked() {
 		s.Gate.Open()
 		c.Detail = fmt.Sprintf("navigation succeeded (HTTP %d) while the gate was closed", res.Status)
 		return o.report(s, c)
 	}
 	blockedWith := "timeout"
-	if err == nil {
+	if err == nil && res.ErrorText != "" {
 		blockedWith = res.ErrorText
 	}
-	leaks := s.sampler.snapshotNow()
-	if len(leaks) > 0 {
-		s.Gate.Open()
-		c.Detail = "non-gate endpoints while gate closed: " + joinEndpoints(leaks)
-		return o.report(s, c)
+	if s.sampler != nil {
+		if leaks := s.sampler.snapshotNow(); len(leaks) > 0 {
+			s.Gate.Open()
+			c.Detail = "non-gate endpoints while gate closed: " + joinEndpoints(leaks)
+			return o.report(s, c)
+		}
 	}
+	cursor := s.Gate.EventCount()
 	s.Gate.Open()
-	res, err = s.Page.Navigate(ctx, cacheBust(o.EchoURL))
+	res, err = resumeNavigate(ctx, s, o)
 	if err != nil || res.Blocked() {
 		detail := "timeout"
 		if err == nil {
@@ -452,19 +455,61 @@ func V7FailClosed(ctx context.Context, s *Subject, o Options) Check {
 		c.Detail = "traffic did not resume after reopening the gate: " + detail
 		return o.report(s, c)
 	}
-	body, _ := s.Page.BodyText(ctx)
+	readCtx, readCancel := context.WithTimeout(ctx, 5*time.Second)
+	body, _ := s.Page.BodyText(readCtx)
+	readCancel()
 	ip, err := provider.ParseEchoBody([]byte(body))
 	if err != nil {
 		c.Detail = "no IP after resume"
 		return o.report(s, c)
 	}
-	if s.BrowserIP != nil && !ip.Equal(s.BrowserIP) {
-		c.Detail = fmt.Sprintf("egress changed after resume: %s -> %s", s.BrowserIP, ip)
+	if o.CompareHostIP && o.HostIPv4 != nil && ip.Equal(o.HostIPv4) {
+		c.Detail = fmt.Sprintf("egress became the host IP after resume: %s", ip)
 		return o.report(s, c)
 	}
+	if !gateSucceededSince(s.Gate, cursor) {
+		c.Detail = "resume did not produce a successful gate CONNECT"
+		return o.report(s, c)
+	}
+	rotated := s.BrowserIP != nil && !ip.Equal(s.BrowserIP)
+	prev := s.BrowserIP
+	s.BrowserIP = ip
 	c.Passed = true
-	c.Detail = fmt.Sprintf("blocked while down (%s), resumed via %s", blockedWith, ip)
+	if rotated {
+		c.Detail = fmt.Sprintf("blocked while down (%s), resumed via %s (exit rotated from %s)", blockedWith, ip, prev)
+	} else {
+		c.Detail = fmt.Sprintf("blocked while down (%s), resumed via %s", blockedWith, ip)
+	}
 	return o.report(s, c)
+}
+
+func resumeNavigate(ctx context.Context, s *Subject, o Options) (browser.NavResult, error) {
+	try := func() (browser.NavResult, error) {
+		resumeCtx, cancel := context.WithTimeout(ctx, o.timeout())
+		defer cancel()
+		return s.Page.Navigate(resumeCtx, cacheBust(o.EchoURL))
+	}
+	res, err := try()
+	if err == nil && !res.Blocked() {
+		return res, nil
+	}
+	// Closing the gate kills every stream. Tor often needs a beat to
+	// attach a replacement circuit before ipify works again.
+	select {
+	case <-ctx.Done():
+		return res, err
+	case <-time.After(500 * time.Millisecond):
+	}
+	return try()
+}
+
+func gateSucceededSince(g *provider.Gate, cursor int) bool {
+	for _, ev := range g.EventsSince(cursor) {
+		if ev.Reply == socks5.RepSuccess {
+			return true
+		}
+	}
+	return false
 }
 
 // V8NoDirect evaluates the endpoint samples taken since Begin.
