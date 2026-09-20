@@ -189,7 +189,8 @@ func cacheBust(raw string) string {
 }
 
 // V2BrowserEgress navigates the verification tab to the echo URL and
-// compares the reported IP with V1.
+// records that address as the session IP. It fails if the browser is on
+// the host; a mismatch with the earlier controller probe is not a leak.
 func V2BrowserEgress(ctx context.Context, s *Subject, o Options) Check {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, o.timeout())
@@ -216,10 +217,14 @@ func V2BrowserEgress(ctx context.Context, s *Subject, o Options) Check {
 		return o.report(s, c)
 	}
 	s.BrowserIP = ip
-	if s.RouteIP != nil && !ip.Equal(s.RouteIP) {
-		c.Detail = fmt.Sprintf("browser egress %s != route %s", ip, s.RouteIP)
+	if o.CompareHostIP && o.HostIPv4 != nil && ip.Equal(o.HostIPv4) {
+		c.Detail = fmt.Sprintf("browser egress %s equals host IP", ip)
 		return o.report(s, c)
 	}
+	// The session IP is what the browser actually uses. A controller probe
+	// through the same SOCKS user can still land on another Tor circuit;
+	// that is not a leak if the browser is not on the host.
+	s.RouteIP = ip
 	c.Passed, c.Detail = true, ip.String()
 	return o.report(s, c)
 }
@@ -475,6 +480,7 @@ func V7FailClosed(ctx context.Context, s *Subject, o Options) Check {
 	rotated := s.BrowserIP != nil && !ip.Equal(s.BrowserIP)
 	prev := s.BrowserIP
 	s.BrowserIP = ip
+	s.RouteIP = ip
 	c.Passed = true
 	if rotated {
 		c.Detail = fmt.Sprintf("blocked while down (%s), resumed via %s (exit rotated from %s)", blockedWith, ip, prev)

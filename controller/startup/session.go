@@ -264,6 +264,7 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 		s.failAndAbort(ctx)
 		return nil, ErrVerificationFailed
 	}
+	s.pinSessionExits(ctx)
 
 	// 11: startup URL (V9).
 	if cfg.StartupURL != "" {
@@ -315,6 +316,20 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 
 func routeLabel(sub *verify.Subject) string {
 	return fmt.Sprintf("Route %03d", sub.Identity.RouteSlot)
+}
+
+// pinSessionExits locks each local Tor process to the exit that carried
+// the last verified browser stream so the READY IP cannot rotate.
+func (s *Session) pinSessionExits(ctx context.Context) {
+	pinner, ok := s.prov.(manager.SessionExits)
+	if !ok {
+		return
+	}
+	for _, sub := range s.subjects {
+		if err := pinner.PinExit(ctx, sub.Identity.RouteSlot, sub.Route.Def().Username); err != nil {
+			s.Report.Line("%s: session exit not pinned (%v); an IP change will fail-closed", sub.Label(), err)
+		}
+	}
 }
 
 // parallel runs fn for every subject and returns the first error.

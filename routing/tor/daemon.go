@@ -114,7 +114,7 @@ func (d *Daemon) torrc(session string) string {
 	// IsolateSOCKSAuth keeps this identity on its own circuit. IsolateDestAddr
 	// is intentionally omitted: a health check to ipify must reuse the same
 	// exit as browsing, or the session IP looks like it rotated.
-	fmt.Fprintf(&b, "SocksPort auto IsolateSOCKSAuth KeepAliveIsolateSOCKSAuth\n")
+	fmt.Fprintf(&b, "SocksPort auto IsolateSOCKSAuth KeepAliveIsolateSOCKSAuth NoIsolateDestAddr NoIsolateDestPort NoIsolateClientAddr\n")
 	fmt.Fprintf(&b, "MaxCircuitDirtiness %d\n", sessionCircuitLife)
 	fmt.Fprintf(&b, "CircuitIdleTimeout %d\n", sessionCircuitLife)
 	fmt.Fprintf(&b, "CookieAuthentication 1\n")
@@ -337,14 +337,8 @@ func (d *Daemon) pinSOCKSUserOnce(socksUser string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := controlCmd(d.ctrl, d.ctrlR, "SETCONF ExitNodes=$"+fp+" StrictNodes=1"); err != nil {
+	if err := d.applyExitPinLocked(fp); err != nil {
 		return err
-	}
-	d.pinnedExit = fp
-	// Drop leftover GENERAL circuits so a new stream cannot attach to a
-	// different exit that happened to share this SOCKS username.
-	for _, id := range parseGeneralCircuitIDs(circs) {
-		_, _ = controlCmd(d.ctrl, d.ctrlR, "CLOSECIRCUIT "+id)
 	}
 	fmt.Fprintf(d.Log, "pinned SOCKS user to exit $%s\n", fp)
 	return nil
@@ -373,8 +367,29 @@ func (d *Daemon) setPinnedLocked(fp string) error {
 	if d.ctrl == nil {
 		return fmt.Errorf("tor control connection is down")
 	}
-	_, err := controlCmd(d.ctrl, d.ctrlR, "SETCONF ExitNodes=$"+fp+" StrictNodes=1")
-	return err
+	return d.applyExitPinLocked(fp)
+}
+
+func (d *Daemon) applyExitPinLocked(fp string) error {
+	fp = strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(fp)), "$")
+	if fp == "" {
+		return fmt.Errorf("empty exit fingerprint")
+	}
+	if d.ctrl == nil {
+		return fmt.Errorf("tor control connection is down")
+	}
+	if _, err := controlCmd(d.ctrl, d.ctrlR, `SETCONF ExitNodes="$`+fp+`" StrictNodes=1`); err != nil {
+		return err
+	}
+	got, err := controlCmd(d.ctrl, d.ctrlR, "GETCONF ExitNodes")
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(strings.ToUpper(got), fp) {
+		return fmt.Errorf("exit pin did not stick (got %q)", strings.TrimSpace(got))
+	}
+	d.pinnedExit = fp
+	return nil
 }
 
 // Stop terminates the daemon.

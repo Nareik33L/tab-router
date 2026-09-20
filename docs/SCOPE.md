@@ -481,7 +481,7 @@ Per identity (V1–V9) and cross-identity (V3):
 | ID | Check | Method | Pass |
 |---|---|---|---|
 | V1 | Route up | Controller fetches `ip_echo_url` through the route | HTTP 200, IP parsed |
-| V2 | Browser egress | CDP navigates a hidden verification tab to `ip_echo_url`, reads body | IP == V1 IP |
+| V2 | Browser egress | CDP navigates a hidden verification tab to `ip_echo_url`, reads body | public IP, not the host; that address becomes the session IP |
 | V3 | Separation | Compare all V2 IPs and host IP | pairwise distinct; none == host |
 | V4 | DNS delegation | Gate saw CONNECT for echo hostname with DOMAINNAME; zero IP-literal CONNECTs for hostname navigations | true |
 | V5 | IPv6 | Navigate to `ipv6_echo_url` | route IPv6 (≠ host IPv6) **or** blocked; never host IPv6 |

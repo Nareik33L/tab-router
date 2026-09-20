@@ -207,7 +207,7 @@ The startup URL is passed via CDP `Page.navigate`, never on the command line.
 | ID | Check | How | Pass |
 |---|---|---|---|
 | V1 | Route up | controller `PublicIP()` via route | IP parsed |
-| V2 | Browser egress | CDP hidden tab → `ip_echo_url`, read body | == V1 IP |
+| V2 | Browser egress | CDP hidden tab → `ip_echo_url`, read body | public IP ≠ host; becomes the session IP |
 | V3 | Separation | all V2 IPs + host IP (one controller-side direct fetch, configurable) | pairwise distinct, none == host |
 | V4 | DNS delegation | gate events for echo hostname have `DOMAINNAME`; no IP-literal CONNECT for hostname navigations | true |
 | V5 | IPv6 | CDP tab → `ipv6_echo_url` | route IPv6 ≠ host IPv6, **or** blocked; never host IPv6 |
