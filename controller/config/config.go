@@ -309,9 +309,8 @@ func LoadRoutes(path string) ([]provider.RouteDef, error) {
 }
 
 // ExampleRoutes is the placeholder file shipped as routes.example.toml for
-// power users who supply their own upstreams instead of using provider login.
-const ExampleRoutes = `# Optional power-user override. Normal startup does not need this file:
-# run ` + "`tab-router provider login`" + ` instead.
+// power users who supply their own upstreams instead of automatic exits.
+const ExampleRoutes = `# Optional power-user override. Normal startup does not need this file.
 # Keep this file private (chmod 600). Never commit it.
 
 [[route]]
@@ -331,8 +330,8 @@ address = "proxy-b.example.net:3128"
 func MissingRoutesMessage(path string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "No route definitions found at %s\n\n", path)
-	b.WriteString("Normal startup does not need this file. One-time setup:\n\n")
-	b.WriteString("  tab-router provider login\n\n")
+	b.WriteString("Normal startup does not need this file. Run:\n\n")
+	b.WriteString("  tab-router --identities 2 --url https://example.com\n\n")
 	b.WriteString("To supply your own upstreams instead, create the file with owner-only\n")
 	b.WriteString("permissions, for example:\n\n")
 	b.WriteString(ExampleRoutes)

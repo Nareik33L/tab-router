@@ -1,6 +1,6 @@
 # ADR-0003: Automatic route provisioning via userspace WireGuard
 
-Status: Accepted
+Status: Superseded in part by ADR-0004 (no login on the normal path)
 Date: 2026-09-20
 
 ## Context

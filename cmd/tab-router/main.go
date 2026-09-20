@@ -65,7 +65,6 @@ func run(args []string) int {
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage:")
 		fmt.Fprintln(os.Stderr, "  tab-router [--identities N] [--url URL] [--fresh]")
-		fmt.Fprintln(os.Stderr, "  tab-router provider login|status|logout")
 		fmt.Fprintln(os.Stderr, "  tab-router --status | --stop | --diagnostics [--json]")
 		fmt.Fprintln(os.Stderr, "  tab-router route-check            (dev: print the public IP of each route)")
 		fmt.Fprintln(os.Stderr)
@@ -130,10 +129,6 @@ func start(ov config.Overrides, unicode bool) int {
 	if !ok {
 		return exitUsage
 	}
-	if !networkConfigured(cfg, ov) {
-		fmt.Fprint(os.Stderr, manager.MissingProviderMessage(cfg.DataDir))
-		return exitUsage
-	}
 	if _, err := ipc.Dial(cfg.DataDir); err == nil {
 		fmt.Fprintln(os.Stderr, "tab-router is already running; use --status or --stop")
 		return exitRunning
@@ -148,10 +143,6 @@ func start(ov config.Overrides, unicode bool) int {
 	rep := startup.NewReporter(os.Stdout, unicode)
 	sess, err := startup.Run(ctx, cfg, rep, startup.Options{Pin: chromium.Pin(), Unicode: unicode})
 	if err != nil {
-		if errors.Is(err, manager.ErrNoProvider) {
-			fmt.Fprint(os.Stderr, manager.MissingProviderMessage(cfg.DataDir))
-			return exitUsage
-		}
 		return exitFor(err)
 	}
 
@@ -194,19 +185,6 @@ func start(ov config.Overrides, unicode bool) int {
 			}
 		}
 	}
-}
-
-func networkConfigured(cfg config.Config, ov config.Overrides) bool {
-	if ov.RoutesPath != "" {
-		return true
-	}
-	if _, err := os.Stat(manager.Path(cfg.DataDir)); err == nil {
-		return true
-	}
-	if _, err := os.Stat(cfg.RoutesPath); err == nil {
-		return true
-	}
-	return false
 }
 
 func exitFor(err error) int {
@@ -394,9 +372,6 @@ func routeCheck(ov config.Overrides) int {
 			return exitUsage
 		}
 		prov, name = manager.Static{Defs: defs}, "static"
-	case errors.Is(err, manager.ErrNoProvider):
-		fmt.Fprint(os.Stderr, manager.MissingProviderMessage(cfg.DataDir))
-		return exitUsage
 	default:
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return exitUsage

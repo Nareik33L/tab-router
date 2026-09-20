@@ -387,9 +387,9 @@ func TestAuthenticatedUpstreams(t *testing.T) {
 	}
 }
 
-// TestAutomaticProvisionWithoutRoutesFile is the add-on UX: identities + URL
-// with no routes.toml. Tests inject a Provisioner-equivalent via RouteDefs
-// (the in-process infra), which is the same Identity N → Route N path.
+// TestAutomaticProvisionWithoutRoutesFile is the product UX: identities + URL
+// with no routes.toml and no login. Tests inject RouteDefs (in-process infra)
+// so CI does not need a live Tor network; production Resolve defaults to tor.
 func TestAutomaticProvisionWithoutRoutesFile(t *testing.T) {
 	h := newHarness(t)
 	ctx := ctxT(t)

@@ -18,6 +18,8 @@ func runProvider(args []string) int {
 		fmt.Fprintln(os.Stderr, "  tab-router provider login [--account N] [--identities 2] [--data-dir DIR]")
 		fmt.Fprintln(os.Stderr, "  tab-router provider status [--data-dir DIR]")
 		fmt.Fprintln(os.Stderr, "  tab-router provider logout [--data-dir DIR]")
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Optional Mullvad override. Normal startup does not use this.")
 		return exitUsage
 	}
 	cmd, rest := args[0], args[1:]
@@ -99,6 +101,7 @@ func providerLogin(args []string) int {
 		fmt.Printf("Device slot %d: %s (%s)\n", d.Slot, d.Name, d.IPv4)
 	}
 	fmt.Println()
+	fmt.Println("Optional override stored. Normal startup does not need this.")
 	fmt.Println("Start with:  tab-router --identities 2 --url https://example.com")
 	return exitOK
 }

@@ -1,7 +1,7 @@
 # Tab Router upstream routes (optional power-user override)
 
-Normal startup does not use this file. Run `tab-router provider login`
-once, then `tab-router --identities 2 --url https://example.com`.
+Normal startup does not use this file. Just run
+`tab-router --identities 2 --url https://example.com`.
 
 Keep this file private (chmod 600 / owner-only ACL) if you do create it.
 Never commit it.

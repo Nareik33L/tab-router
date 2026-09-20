@@ -1,7 +1,7 @@
-# Tab Router — Technical Scope v0.3
+# Tab Router — Technical Scope v0.4
 
-Supersedes v0.2. Changes from v0.2 are marked **[v0.3]** and are summarised in
-Appendix A.
+Supersedes v0.3. Changes from v0.3 are marked **[v0.4]** and are summarised in
+Appendix C. v0.3 changes remain in Appendix B.
 
 ---
 
@@ -23,18 +23,18 @@ Each identity has:
 On startup the user specifies (1) the number of identities and (2) an optional
 URL to open in every identity.
 
-**[v0.3] Route sourcing.** The application does not create public IP
-addresses. Tab Router owns the route lifecycle: it provisions one independent
-egress path per identity, verifies connectivity, binds the identity to that
-route, keeps the route up while the session runs, and tears it down on exit.
-The first provider is Mullvad via a userspace WireGuard tunnel (no
-administrator rights, no host routing changes). One-time setup is
-`tab-router provider login`. Chromium never sees the provider; it only sees
-its local Gate. A leftover `routes.toml` remains a power-user override.
-"No manual networking configuration" means: the application never changes
-host routing tables, adapters, DNS settings or firewall rules, never requires
-administrator rights for normal use, and the user never configures a browser
-tab, proxy host, or SOCKS credential by hand.
+**[v0.4] Route sourcing.** The application does not create public IP
+addresses and does not have a Tab Router account. Tab Router owns the route
+lifecycle: it provisions one independent egress path per identity, verifies
+connectivity, binds the identity to that route, keeps the route up while the
+session runs, and tears it down on exit. The default mechanism is a local
+Tor daemon (pinned Expert Bundle, no user account, no login). Chromium never
+sees Tor; it only sees its local Gate. A leftover `routes.toml` remains a
+power-user override. "No manual networking configuration" means: the
+application never changes host routing tables, adapters, DNS settings or
+firewall rules, never requires administrator rights for normal use, and the
+user never configures a browser tab, proxy host, SOCKS credential, or
+provider login by hand.
 
 **[v0.2] Two identities first.** The initial implementation targets exactly
 two identities and two routes. The identity count is hard-capped at 2 until
@@ -329,7 +329,7 @@ Controller (daemon for the session)
  2. Determine identity count (≤ cap)
  3. Validate startup URL
  4. Create/load identity set; acquire lock
- 5. Resolve provisioner (provider.toml, else routes.toml, else error with login hint)
+ 5. Resolve provisioner (default local Tor; optional leftover provider.toml or routes.toml)
  6. Provision N independent routes and create gates (gates start CLOSED)
  7. Start routes; controller-side verification (V1): public IP per route
  8. Launch one Chromium per identity, pinned to its gate; open gates
@@ -364,9 +364,9 @@ controller. No unauthenticated DevTools TCP port.
 ## 17. Security
 
 * No telemetry, Tab Router accounts, or transmission of browsing data.
-* Provider credentials live only in `provider.toml` (0600 / owner-only ACL).
-  Optional `routes.toml` is the same for bring-your-own upstreams. Both are
-  redacted from all logs and status output.
+* Normal startup does not create or require a cloud credential file.
+  Optional `routes.toml` (bring-your-own upstreams) uses owner-only
+  permissions and is redacted from all logs and status output.
 * The startup URL is not placed on any process command line.
 * Chromium runs with its default sandbox; never pass `--no-sandbox`.
 * One outbound request from the *controller* over the host connection is
@@ -383,7 +383,6 @@ tab-router                                   interactive if TTY, else defaults
 tab-router --identities 2
 tab-router --identities 2 --url https://example.com
 tab-router --fresh --identities 2 --url https://example.com
-tab-router provider login|status|logout
 tab-router --status
 tab-router --stop
 tab-router --diagnostics [--full]
@@ -419,12 +418,10 @@ compare_host_ip = true
 probe_interval_seconds = 10
 ```
 
-`provider.toml` (secret, owner-only permissions, never committed) is written
-by `tab-router provider login`. Routes are not persisted across sessions;
-identities are.
+Routes are not persisted across sessions; identities are. There is no
+`provider.toml` on the normal path.
 
-`routes.toml` is an optional power-user override when no provider is
-configured:
+`routes.toml` is an optional power-user override:
 
 ```toml
 [[route]]
@@ -642,14 +639,15 @@ modifications; Linux as a supported platform; running without verification.
 
 ## 27. Definition of done
 
-v0.1 is done when a clean Windows 11 machine and a clean macOS 13+ machine,
-after `tab-router provider login`, can each run
+v0.1 is done when a clean Windows 11 machine and a clean macOS 13+ machine
+can each run
 
 ```
 tab-router --identities 2 --url https://example.com
 ```
 
-and print `TAB ROUTER READY … Isolation verification: PASSED`, with:
+with no account, no login, and no `routes.toml`, and print
+`TAB ROUTER READY … Isolation verification: PASSED`, with:
 
 * independent browser storage (T-D)
 * simultaneous operation
@@ -713,3 +711,12 @@ WINDOW → IDENTITY → CHROMIUM PROCESS → GATE → ROUTE → PUBLIC EGRESS
 4. Fail-closed re-establish of a failed route onto a different path;
    never a silent fallback to the host or another identity.
 5. Verification (V1–V9) remains mandatory after automatic creation.
+
+## Appendix C — Summary of v0.4 changes
+
+1. Normal startup has no Tab Router account and no `provider login`.
+2. Default exits are provisioned locally via a pinned Tor Expert Bundle
+   (no cloud credentials). Distinct circuits per identity; V1–V9 still prove
+   distinct public IPs.
+3. `routes.toml` remains an optional override. A leftover Mullvad
+   `provider.toml` is optional and is never created by normal startup.

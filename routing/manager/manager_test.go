@@ -48,9 +48,12 @@ func TestResolveOrder(t *testing.T) {
 		t.Fatalf("got %T", p)
 	}
 
-	_, _, err = Resolve(ctx, dir, filepath.Join(dir, "missing.toml"), nil, 2)
-	if !errors.Is(err, ErrNoProvider) {
-		t.Fatalf("want ErrNoProvider, got %v", err)
+	p, name, err = Resolve(ctx, dir, filepath.Join(dir, "missing.toml"), nil, 2)
+	if err != nil || name != "tor" {
+		t.Fatalf("want tor, got %v %s", err, name)
+	}
+	if _, ok := p.(*Local); !ok {
+		t.Fatalf("got %T", p)
 	}
 
 	routes := filepath.Join(dir, "routes.toml")
@@ -132,7 +135,10 @@ func TestRedactAccount(t *testing.T) {
 	if got := RedactAccount("1234567890123456"); got != "************3456" {
 		t.Fatalf("got %q", got)
 	}
-	if !strings.Contains(MissingProviderMessage("/tmp/tr"), "provider login") {
-		t.Fatal("missing login hint")
+	if !strings.Contains(MissingProviderMessage("/tmp/tr"), "tab-router --identities 2") {
+		t.Fatal("missing default start hint")
+	}
+	if strings.Contains(MissingProviderMessage("/tmp/tr"), "provider login") {
+		t.Fatal("login must not be presented as required")
 	}
 }

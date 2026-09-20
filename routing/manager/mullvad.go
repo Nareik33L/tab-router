@@ -88,22 +88,16 @@ func SaveFile(path string, f File) error {
 	return os.Rename(tmp, path)
 }
 
-// MissingProviderMessage is printed when neither a provider nor routes.toml
-// is configured.
+// MissingProviderMessage is printed by the optional Mullvad override
+// commands when no leftover provider.toml is present.
 func MissingProviderMessage(dataDir string) string {
 	var b strings.Builder
-	b.WriteString("No network provider configured.\n\n")
-	b.WriteString("Tab Router creates one independent route per identity. It cannot\n")
-	b.WriteString("invent public IP addresses, so it needs a network-exit provider.\n")
-	b.WriteString("The first provider is Mullvad, via a userspace WireGuard tunnel\n")
-	b.WriteString("(no administrator rights, no host routing changes).\n\n")
-	b.WriteString("One-time setup — paste your Mullvad account number:\n\n")
-	b.WriteString("  tab-router provider login\n\n")
-	fmt.Fprintf(&b, "It is stored owner-only in %s\n", Path(dataDir))
-	b.WriteString("and is never sent to Chromium or printed in logs.\n\n")
-	b.WriteString("A Mullvad account is required because two identities need two\n")
-	b.WriteString("independent public egress IPs. After login:\n\n")
-	b.WriteString("  tab-router --identities 2 --url https://example.com\n")
+	b.WriteString("No optional Mullvad override is configured.\n\n")
+	b.WriteString("Normal startup does not need one. Run:\n\n")
+	b.WriteString("  tab-router --identities 2 --url https://example.com\n\n")
+	b.WriteString("Tab Router provisions isolated exits locally (via Tor) with no\n")
+	b.WriteString("account and no login. Chromium never sees the exit machinery.\n")
+	fmt.Fprintf(&b, "\nAn optional leftover config would live at %s\n", Path(dataDir))
 	return b.String()
 }
 
