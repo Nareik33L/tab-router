@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -72,7 +73,27 @@ func (b *Browser) attach(ctx context.Context, targetID string) (*Page, error) {
 			return nil, err
 		}
 	}
+	_ = p.waitReady(ctx)
 	return p, nil
+}
+
+// waitReady waits until the tab has finished its initial about:blank load.
+// Navigating before that, especially on Windows Chrome for Testing, yields
+// net::ERR_ABORTED and no proxy CONNECT.
+func (p *Page) waitReady(ctx context.Context) error {
+	deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		var state string
+		if err := p.Evaluate(deadline, "document.readyState", &state); err == nil && (state == "complete" || state == "interactive") {
+			return nil
+		}
+		select {
+		case <-deadline.Done():
+			return nil
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
 
 // Close closes the tab.
@@ -96,6 +117,30 @@ func (r NavResult) Blocked() bool { return r.ErrorText != "" }
 
 // Navigate loads url and waits for the load event (or a network error).
 func (p *Page) Navigate(ctx context.Context, url string) (NavResult, error) {
+	var last NavResult
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		last, lastErr = p.navigateOnce(ctx, url)
+		if lastErr != nil {
+			return last, lastErr
+		}
+		if !last.Blocked() || !transientNavError(last.ErrorText) {
+			return last, nil
+		}
+		select {
+		case <-ctx.Done():
+			return last, nil
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	return last, lastErr
+}
+
+func transientNavError(s string) bool {
+	return strings.Contains(s, "ERR_ABORTED") || strings.Contains(s, "ERR_FAILED")
+}
+
+func (p *Page) navigateOnce(ctx context.Context, url string) (NavResult, error) {
 	start := time.Now()
 	res := NavResult{RequestedURL: url}
 	events, cancel := p.b.cdp.Subscribe(p.SessionID, "")
