@@ -3,6 +3,7 @@
 package browser
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // EnvBinary overrides Chromium discovery (development and CI).
@@ -143,13 +145,25 @@ func LoadPin(path string) (*PinManifest, error) {
 	return &m, nil
 }
 
-// Version runs the binary with --version and returns the trimmed output.
+// Version runs the binary with --product-version (then --version) and
+// returns the trimmed output. Chrome for Testing on Windows can hang
+// forever on --version, so the call is bounded and the window is hidden.
 func Version(binary string) (string, error) {
-	out, err := exec.Command(binary, "--version").Output()
-	if err != nil {
-		return "", err
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	try := func(flag string) (string, error) {
+		cmd := exec.CommandContext(ctx, binary, flag)
+		hideWindow(cmd)
+		out, err := cmd.Output()
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(out)), nil
 	}
-	return strings.TrimSpace(string(out)), nil
+	if s, err := try("--product-version"); err == nil && s != "" {
+		return s, nil
+	}
+	return try("--version")
 }
 
 // HardeningFlags is the flag set every identity runs with. Each flag is

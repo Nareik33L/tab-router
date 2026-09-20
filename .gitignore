@@ -5,9 +5,10 @@
 *.dmg
 *.msi
 
-# Secrets: never commit route definitions
+# Secrets: never commit route or provider credentials
 routes.toml
 *.routes.toml
+provider.toml
 
 # Local data
 /data/

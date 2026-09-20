@@ -8,8 +8,8 @@ configuration would still be caught.
 
 ## Setup
 
-1. Two working upstream routes in `routes.toml` with different public IPs.
-   For an offline run use the test network instead:
+1. A Mullvad account (`tab-router provider login`) so two identities get two
+   public IPs. For an offline run use the test network instead:
    `go run ./tests/infra/cmd/tab-router-infra --out /tmp/tr` (egress
    `127.0.0.2` / `127.0.0.3`; on macOS first `sudo ifconfig lo0 alias
    127.0.0.2 up` and likewise for `.3`).

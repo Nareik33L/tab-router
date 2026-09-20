@@ -79,6 +79,16 @@ func (r *upstreamRoute) Stop() error {
 	return nil
 }
 
+func (r *upstreamRoute) Reachable(ctx context.Context) error {
+	d := net.Dialer{Timeout: 10 * time.Second}
+	c, err := d.DialContext(ctx, "tcp", r.def.Address)
+	if err != nil {
+		return err
+	}
+	c.Close()
+	return nil
+}
+
 func (r *upstreamRoute) Dial(ctx context.Context, network, hostport string) (net.Conn, error) {
 	switch r.Status() {
 	case StatusReady, StatusVerifying:

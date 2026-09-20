@@ -308,14 +308,15 @@ func LoadRoutes(path string) ([]provider.RouteDef, error) {
 	return r.Route, nil
 }
 
-// ExampleRoutes is the placeholder file shipped as routes.example.toml and
-// printed when routes.toml is missing.
-const ExampleRoutes = `# Tab Router upstream routes. One [[route]] per identity slot, in order.
+// ExampleRoutes is the placeholder file shipped as routes.example.toml for
+// power users who supply their own upstreams instead of using provider login.
+const ExampleRoutes = `# Optional power-user override. Normal startup does not need this file:
+# run ` + "`tab-router provider login`" + ` instead.
 # Keep this file private (chmod 600). Never commit it.
 
 [[route]]
 id = "route-001"
-type = "socks5"                      # socks5 | http
+type = "socks5"                      # socks5 | http | wireguard
 address = "proxy-a.example.net:1080"
 username = "alice"
 password_env = "TR_ROUTE_001_PASSWORD"   # or: password = "..."
@@ -326,12 +327,14 @@ type = "http"
 address = "proxy-b.example.net:3128"
 `
 
-// MissingRoutesMessage explains how to create routes.toml.
+// MissingRoutesMessage explains how to create routes.toml when --routes is set.
 func MissingRoutesMessage(path string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "No route definitions found at %s\n\n", path)
-	b.WriteString("Tab Router needs one upstream (SOCKS5 or HTTP proxy) per identity.\n")
-	b.WriteString("Create the file with owner-only permissions, for example:\n\n")
+	b.WriteString("Normal startup does not need this file. One-time setup:\n\n")
+	b.WriteString("  tab-router provider login\n\n")
+	b.WriteString("To supply your own upstreams instead, create the file with owner-only\n")
+	b.WriteString("permissions, for example:\n\n")
 	b.WriteString(ExampleRoutes)
 	return b.String()
 }

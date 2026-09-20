@@ -29,6 +29,7 @@ type Identity struct {
 	Environment Environment `json:"environment"`
 	Dir         string      `json:"-"`
 	Profile     string      `json:"-"`
+	JustCreated bool        `json:"-"`
 }
 
 // DownloadPath is the absolute download directory for the identity.
@@ -269,5 +270,6 @@ func (s *Set) loadOrCreate(i int, envFor EnvironmentFor) (Identity, error) {
 	}
 	id.Dir = dir
 	id.Profile = filepath.Join(dir, "profile")
+	id.JustCreated = true
 	return id, nil
 }

@@ -1,4 +1,6 @@
-# Tab Router configuration (non-secret). Routes live in routes.toml.
+# Tab Router configuration (non-secret).
+# Network routes are provisioned automatically after `tab-router provider login`.
+# Power users may still drop a routes.toml next to this file.
 identities = 2
 startup_url = ""
 persistent_identities = true
