@@ -51,11 +51,22 @@ type RouteDef struct {
 	Password string `toml:"password"`
 	// PasswordEnv names an environment variable holding the password.
 	PasswordEnv string `toml:"password_env"`
+
+	// WireGuard fields (type = "wireguard"). Keys are hex or base64.
+	PrivateKey    string `toml:"private_key"`
+	PeerPublicKey string `toml:"peer_public_key"`
+	LocalAddress  string `toml:"local_address"`
+	LocalAddress6 string `toml:"local_address6"`
+	DNS           string `toml:"dns"`
+	MTU           int    `toml:"mtu"`
 }
 
 // Redacted returns a log-safe description of the route with credentials
 // removed. Nothing else may ever print a RouteDef.
 func (d RouteDef) Redacted() string {
+	if d.Type == "wireguard" {
+		return fmt.Sprintf("wireguard://%s (userspace)", d.Address)
+	}
 	if d.Username != "" || d.Password != "" || d.PasswordEnv != "" {
 		return fmt.Sprintf("%s://%s:***@%s", d.Type, d.Username, d.Address)
 	}
@@ -72,6 +83,12 @@ func (d RouteDef) Validate() error {
 	}
 	if _, _, err := net.SplitHostPort(d.Address); err != nil {
 		return fmt.Errorf("route %s: address must be host:port: %v", d.ID, err)
+	}
+	if d.Type == "wireguard" {
+		if d.PrivateKey == "" || d.PeerPublicKey == "" || d.LocalAddress == "" {
+			return fmt.Errorf("route %s: wireguard requires private_key, peer_public_key and local_address", d.ID)
+		}
+		return nil
 	}
 	if d.Password != "" && d.PasswordEnv != "" {
 		return fmt.Errorf("route %s: set either password or password_env, not both", d.ID)
@@ -93,6 +110,9 @@ type Route interface {
 	// Dial opens a TCP connection to hostport through the route. Hostnames
 	// must be passed to the far end unresolved.
 	Dial(ctx context.Context, network, hostport string) (net.Conn, error)
+	// Reachable is a cheap liveness probe of the transport itself (TCP to a
+	// proxy upstream, handshake for a tunnel). It does not fetch a public IP.
+	Reachable(ctx context.Context) error
 	// LastError returns the most recent start/probe error, if any.
 	LastError() error
 }

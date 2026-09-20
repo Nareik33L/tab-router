@@ -1,38 +1,117 @@
 # Tab Router
 
-Terminal-driven, Chromium-based browser for Windows and macOS that runs
-several **persistent, isolated browsing identities** at once. Each identity
-has its own browser profile, its own device environment (locale, timezone,
-window, downloads) and its own network route with its own public IP.
-Traffic from one identity can never fall back to another route or to the
-host's normal connection: if a route is down, that identity is blocked.
+Two isolated Chromium browsers on one Mac or Windows PC. Each has its own
+cookies, window, and public IP. You do **not** need Go, a Tab Router account,
+a `routes.toml` file, or any login.
 
-Status: **v0.1.0 — two-identity milestone.** The identity count is capped at
-2 until the isolation suite has been signed off (see
-[`docs/ENGINEERING_PLAN.md`](docs/ENGINEERING_PLAN.md), M9).
+Status: two identities, automatic routes. Cap stays at 2 until the isolation
+suite is signed off ([`docs/ENGINEERING_PLAN.md`](docs/ENGINEERING_PLAN.md), M9).
+Downloads: [latest GitHub Release](https://github.com/Nareik33L/tab-router/releases/latest).
 
-## Install from a GitHub Release
+## Quick start (Terminal, no Go)
 
-Download the binary for your platform from
-[Releases](https://github.com/Nareik33L/tab-router/releases):
+You need a Mac or a Windows PC, and **Terminal** (Mac) or **PowerShell**
+(Windows). There is nothing to sign up for.
 
-| File | Platform |
-| --- | --- |
-| `tab-router-vX.Y.Z-windows-amd64.exe` | Windows 10/11 (x64) |
-| `tab-router-vX.Y.Z-darwin-arm64` | macOS Apple Silicon |
-| `tab-router-vX.Y.Z-darwin-amd64` | macOS Intel |
+The first start downloads Chromium and a local network-exit helper (Tor).
+Tab Router then asks how many identities and which URL, provisions one
+isolated route per identity, verifies them, and opens the browsers.
 
-On first run the binary downloads the pinned Chromium into the data
-directory. Create `routes.toml` as below. Unsigned builds: on macOS run
-`xattr -d com.apple.quarantine tab-router`; on Windows, allow the SmartScreen
-prompt.
+### Mac (Apple chip — M1, M2, M3, M4)
+
+Most Macs from 2020 onward. Check: Apple menu (top left) → **About This Mac**.
+If you see **Chip**, use this. If you see **Processor**, use the Intel block
+below.
+
+Open **Terminal** (Command-Space, type `Terminal`, press Enter). Paste the
+whole block, then press Enter:
+
+```sh
+mkdir -p ~/tab-router-app
+cd ~/tab-router-app
+curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-apple-silicon
+chmod +x tab-router
+xattr -d com.apple.quarantine tab-router
+./tab-router
+```
+
+When it asks:
+
+```
+Number of identities [2]:
+Startup URL (blank for none):
+```
+
+Type `2`, press Enter, then paste a URL such as `https://example.com` and
+press Enter. Or skip the prompts:
+
+```sh
+cd ~/tab-router-app
+./tab-router --identities 2 --url https://example.com
+```
+
+Two browser windows should open. You never create a route file and you
+never log in.
+
+If macOS says the app is damaged or cannot be opened, run
+`xattr -d com.apple.quarantine ~/tab-router-app/tab-router`, then retry
+`./tab-router` from `~/tab-router-app`.
+
+### Mac (Intel)
+
+```sh
+mkdir -p ~/tab-router-app
+cd ~/tab-router-app
+curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-intel
+chmod +x tab-router
+xattr -d com.apple.quarantine tab-router
+./tab-router --identities 2 --url https://example.com
+```
+
+### Windows
+
+Open **PowerShell**. Paste:
+
+```powershell
+New-Item -ItemType Directory -Force -Path $HOME\tab-router-app | Out-Null
+cd $HOME\tab-router-app
+Invoke-WebRequest -Uri https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-windows.exe -OutFile tab-router.exe
+.\tab-router.exe --identities 2 --url https://example.com
+```
+
+If Windows SmartScreen appears, choose **More info** → **Run anyway**.
+
+### After it is running
+
+From a **second** Terminal / PowerShell window:
+
+```sh
+cd ~/tab-router-app
+./tab-router --status
+./tab-router --stop
+```
+
+On Windows, first `cd $HOME\tab-router-app`, then use `.\tab-router.exe`
+instead of `./tab-router`.
+
+`--fresh` makes a new browser identity set. It does not change how routes
+are provisioned.
+
+You should see something like:
+
+```
+TAB ROUTER READY
+Identity 001 → Route 001 → READY   …
+Identity 002 → Route 002 → READY   …
+Isolation verification: PASSED
+```
 
 ## How it works
 
 ```
  tab-router (controller)
- ├─ Identity 001 ── Chromium #1 ──proxy──▶ Gate 001 (127.0.0.1:p1) ──▶ Route 001 ──▶ upstream A ──▶ internet as IP-A
- └─ Identity 002 ── Chromium #2 ──proxy──▶ Gate 002 (127.0.0.1:p2) ──▶ Route 002 ──▶ upstream B ──▶ internet as IP-B
+ ├─ Identity 001 ── Chromium #1 ──proxy──▶ Gate 001 ──▶ Route 001 (local Tor circuit) ──▶ egress IP-A
+ └─ Identity 002 ── Chromium #2 ──proxy──▶ Gate 002 ──▶ Route 002 (local Tor circuit) ──▶ egress IP-B
 ```
 
 * One Chromium process tree per identity, launched with a hardened flag set
@@ -40,88 +119,30 @@ prompt.
 * The gate is a local SOCKS5 server that forwards only while its route is
   verified `READY`. When the route fails the gate refuses every request, so
   the browser shows a connection error instead of using the host network.
-  Chromium never sees upstream credentials.
-* DNS is delegated to the upstream (`socks5h` semantics); the browser never
-  resolves hostnames locally.
+  Chromium never sees Tor, relays, or credentials.
+* On start, Tab Router downloads a pinned Tor Expert Bundle if needed and
+  provisions one independent circuit per identity (no administrator rights,
+  no host routing changes, no account). Traffic leaves through Tor; some
+  sites block it. That is the no-login way to get two different public IPs.
+* DNS is delegated through the route; the browser never resolves hostnames
+  locally.
 * At startup nine checks (V1–V9) prove the isolation before any identity is
   reported ready. If any check fails, every browser is terminated and the
   terminal says so.
 
-Read [`docs/SCOPE.md`](docs/SCOPE.md) for the full requirements.
+Read [`docs/SCOPE.md`](docs/SCOPE.md) for the full requirements and
+[`docs/adr/0004-local-automatic-exits.md`](docs/adr/0004-local-automatic-exits.md)
+for why the default path has no login.
 
-## Quick start (from source)
-
-Requirements: Go 1.22+, and two upstream SOCKS5 or HTTP proxies you control
-(one per identity) that egress from different public IPs.
-
-```sh
-git clone https://github.com/Nareik33L/tab-router && cd tab-router
-go run ./scripts/fetch-chromium          # downloads + verifies the pinned Chromium
-go build -o bin/tab-router ./cmd/tab-router
-```
-
-Create the route file with owner-only permissions:
-
-* macOS: `~/Library/Application Support/tab-router/routes.toml` (`chmod 600`)
-* Windows: `%LOCALAPPDATA%\tab-router\routes.toml`
-
-```toml
-[[route]]
-id = "route-001"
-type = "socks5"                       # socks5 | http
-address = "proxy-a.example.net:1080"
-username = "alice"
-password_env = "TR_ROUTE_001_PASSWORD"   # or password = "..."
-
-[[route]]
-id = "route-002"
-type = "http"
-address = "proxy-b.example.net:3128"
-```
-
-Run:
+Extra commands (from `~/tab-router-app`, or `$HOME\tab-router-app` on Windows):
 
 ```sh
-bin/tab-router --identities 2 --url https://example.com
+./tab-router --diagnostics
+./tab-router --fresh
 ```
 
-```
-TAB ROUTER v0.1.0
-Identities: 2   Startup URL: https://example.com
-Using identity set set-2026-09-20T14-18-36Z
-Browser: Chromium 153.0.8010.52 (pinned)
-Starting 2 identities...
-Identity 001 → Route 001: CONNECTED ✓
-Identity 002 → Route 002: CONNECTED ✓
-Verifying network isolation...
-Identity 001 → Public IP: 203.0.113.10 ✓
-Identity 002 → Public IP: 198.51.100.7 ✓
-Identity 001 ≠ Identity 002 ≠ host ✓
-Verifying DNS routing... ✓
-Verifying IPv6 behaviour... ✓
-Verifying browser storage isolation... ✓
-Verifying fail-closed behaviour... ✓
-Verifying no direct connections... ✓
-Opening startup URL...
-Identity 001 → https://example.com ✓
-Identity 002 → https://example.com ✓
-================================
-TAB ROUTER READY
-================================
-Identity 001 → Route 001 → READY   203.0.113.10
-Identity 002 → Route 002 → READY   198.51.100.7
-Isolation verification: PASSED (9/9 checks per identity)
-```
-
-Other commands, from a second terminal:
-
-```sh
-bin/tab-router --status            # live state, health, environment per identity
-bin/tab-router --diagnostics       # re-run the isolation checks and print a report
-bin/tab-router --stop
-bin/tab-router --fresh             # start a brand-new identity set (old one is kept)
-bin/tab-router route-check         # dev: public IP of each configured route
-```
+A `routes.toml` of your own SOCKS/HTTP proxies is optional. See
+[`docs/routes.example.toml`](docs/routes.example.toml).
 
 Exit codes: `0` ok · `1` usage/config · `2` verification failed · `3` route
 failed · `4` browser failed · `5` already running.
@@ -162,7 +183,7 @@ legitimately exposes are used, and the point is stability, not disguise.
 
 ## Configuration
 
-`config.toml` lives next to `routes.toml`. All keys are optional:
+`config.toml` lives in the data directory. All keys are optional:
 
 ```toml
 identities = 2
@@ -190,11 +211,16 @@ Data directory: `~/Library/Application Support/tab-router` (macOS),
 ## Development
 
 Linux is a development/CI host only; product platforms are Windows and macOS.
+Building from source needs Go 1.22+. You do not need this to use Tab Router.
 
 ```sh
-make vet          # go vet for linux, windows and darwin
-make test-unit    # no browser needed
-make infra        # local test network: IP echo + two proxies with distinct source IPs
+git clone https://github.com/Nareik33L/tab-router && cd tab-router
+go run ./scripts/fetch-chromium
+go build -o bin/tab-router ./cmd/tab-router
+bin/tab-router --identities 2 --url https://example.com
+
+make vet
+make test-unit
 make test-isolation   # needs TAB_ROUTER_CHROMIUM or `make fetch-chromium`
 ```
 
@@ -213,8 +239,11 @@ controller/verify     checks V1–V9
 controller/health     runtime probes, fail-closed enforcement, leak alarms
 controller/browser    Chromium finder, launcher, CDP-over-pipe client, prefs
 controller/identity   identity sets, identity.json, environments
-controller/config     config.toml / routes.toml
+controller/config     config.toml / optional routes.toml
+routing/manager       Provisioner (local Tor by default, static/Mullvad overrides)
 routing/provider      Route, RoutingProvider, Gate
+routing/tor           pinned Tor Expert Bundle + local daemon
+routing/wireguard     userspace WireGuard (optional Mullvad override)
 routing/socks5        SOCKS5 client and CONNECT-only server
 routing/httpproxy     HTTP CONNECT client and server
 routing/platform      OS-specific: process tree, endpoint enumeration, IPC, file ACLs
@@ -227,8 +256,9 @@ docs/                 scope, engineering plan, ADRs, flag rationale, leak testin
 
 ## Security notes
 
-* Route credentials live only in `routes.toml` (refused if readable by other
-  users) or environment variables, and never reach Chromium or the terminal.
+* There is no Tab Router account. Normal startup stores no cloud credentials.
+  Optional `routes.toml` (bring-your-own upstreams) is owner-only and is
+  redacted from logs.
 * The DevTools channel is a pipe, never a TCP port.
 * The control channel is a Unix socket / named pipe with a per-session
   random token.

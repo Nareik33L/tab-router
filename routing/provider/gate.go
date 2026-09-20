@@ -41,7 +41,10 @@ func NewGate(route Route) *Gate {
 	g := &Gate{route: route, max: 4096}
 	g.srv = &socks5.Server{
 		Dial: func(ctx context.Context, hostport string) (net.Conn, error) {
-			return route.Dial(ctx, "tcp", hostport)
+			g.mu.Lock()
+			r := g.route
+			g.mu.Unlock()
+			return r.Dial(ctx, "tcp", hostport)
 		},
 		Refuse:   func() bool { return !g.open.Load() },
 		OnResult: g.record,
@@ -77,7 +80,19 @@ func (g *Gate) Port() int {
 }
 
 // Route returns the bound route.
-func (g *Gate) Route() Route { return g.route }
+func (g *Gate) Route() Route {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.route
+}
+
+// SetRoute swaps the upstream this gate forwards to. The gate should be
+// CLOSED while the new route is brought up and verified.
+func (g *Gate) SetRoute(r Route) {
+	g.mu.Lock()
+	g.route = r
+	g.mu.Unlock()
+}
 
 // Open allows forwarding.
 func (g *Gate) Open() { g.open.Store(true) }

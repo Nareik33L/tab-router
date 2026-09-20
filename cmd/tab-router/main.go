@@ -23,6 +23,7 @@ import (
 	"github.com/Nareik33L/tab-router/controller/config"
 	"github.com/Nareik33L/tab-router/controller/startup"
 	"github.com/Nareik33L/tab-router/ipc"
+	"github.com/Nareik33L/tab-router/routing/manager"
 	"github.com/Nareik33L/tab-router/routing/provider"
 )
 
@@ -40,6 +41,9 @@ func main() {
 }
 
 func run(args []string) int {
+	if len(args) > 0 && args[0] == "provider" {
+		return runProvider(args[1:])
+	}
 	fs := flag.NewFlagSet("tab-router", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var (
@@ -62,7 +66,7 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage:")
 		fmt.Fprintln(os.Stderr, "  tab-router [--identities N] [--url URL] [--fresh]")
 		fmt.Fprintln(os.Stderr, "  tab-router --status | --stop | --diagnostics [--json]")
-		fmt.Fprintln(os.Stderr, "  tab-router route-check            (dev: print the public IP of each configured route)")
+		fmt.Fprintln(os.Stderr, "  tab-router route-check            (dev: print the public IP of each route)")
 		fmt.Fprintln(os.Stderr)
 		fs.PrintDefaults()
 	}
@@ -123,10 +127,6 @@ func loadConfig(ov config.Overrides) (config.Config, bool) {
 func start(ov config.Overrides, unicode bool) int {
 	cfg, ok := loadConfig(ov)
 	if !ok {
-		return exitUsage
-	}
-	if _, err := os.Stat(cfg.RoutesPath); err != nil && ov.RoutesPath == "" {
-		fmt.Fprint(os.Stderr, config.MissingRoutesMessage(cfg.RoutesPath))
 		return exitUsage
 	}
 	if _, err := ipc.Dial(cfg.DataDir); err == nil {
@@ -351,32 +351,55 @@ func routeCheck(ov config.Overrides) int {
 	if !ok {
 		return exitUsage
 	}
-	defs, err := config.LoadRoutes(cfg.RoutesPath)
-	if err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	var explicit []provider.RouteDef
+	if ov.RoutesPath != "" {
+		defs, err := config.LoadRoutes(cfg.RoutesPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return exitUsage
+		}
+		explicit = defs
+	}
+	prov, name, err := manager.Resolve(ctx, cfg.DataDir, cfg.RoutesPath, explicit, cfg.Identities)
+	switch {
+	case err == nil:
+	case errors.Is(err, manager.ErrTryRoutes):
+		defs, err := config.LoadRoutes(cfg.RoutesPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return exitUsage
+		}
+		prov, name = manager.Static{Defs: defs}, "static"
+	default:
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return exitUsage
 	}
-	ctx := context.Background()
+	fmt.Printf("Network provider: %s\n", name)
+	routes, err := prov.Provision(ctx, cfg.Identities)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return exitRoute
+	}
+	defer prov.Close()
 	rc := exitOK
-	for i, def := range defs {
-		r, err := provider.New(def)
-		if err != nil {
-			fmt.Printf("Route %03d  %s  ERROR %v\n", i+1, def.Redacted(), err)
-			rc = exitRoute
-			continue
-		}
+	for i, r := range routes {
 		if err := r.Start(ctx); err != nil {
-			fmt.Printf("Route %03d  %s  UNREACHABLE %v\n", i+1, def.Redacted(), err)
+			fmt.Printf("Route %03d  %s  UNREACHABLE %v\n", i+1, r.Def().Redacted(), err)
 			rc = exitRoute
+			_ = r.Stop()
 			continue
 		}
 		ip, err := provider.PublicIP(ctx, r.Dial, cfg.Verify.IPEchoURL, 20*time.Second)
 		if err != nil {
-			fmt.Printf("Route %03d  %s  NO EGRESS %v\n", i+1, def.Redacted(), err)
+			fmt.Printf("Route %03d  %s  NO EGRESS %v\n", i+1, r.Def().Redacted(), err)
 			rc = exitRoute
+			_ = r.Stop()
 			continue
 		}
-		fmt.Printf("Route %03d  %s  %s\n", i+1, def.Redacted(), ip)
+		fmt.Printf("Route %03d  %s  %s\n", i+1, r.Def().Redacted(), ip)
+		_ = r.Stop()
 	}
 	return rc
 }
@@ -420,10 +443,11 @@ func isTerminal(f *os.File) bool {
 // Chromium is already configured. Release binaries use this so the user
 // does not need a source checkout.
 func ensureChromium(cfg config.Config) error {
-	if _, err := browser.Find(cfg.DataDir, chromium.Pin()); err == nil {
+	pin := chromium.Pin()
+	if found, err := browser.Find(cfg.DataDir, pin); err == nil && found.Source != "system" {
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "Chromium not found; downloading pinned %s…\n", chromium.Pin().Version)
+	fmt.Fprintf(os.Stderr, "Chromium not found; downloading pinned %s…\n", pin.Version)
 	_, err := chromium.Install(filepath.Join(cfg.DataDir, "chromium"), "", os.Stderr)
 	return err
 }

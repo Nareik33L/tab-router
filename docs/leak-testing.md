@@ -8,8 +8,9 @@ configuration would still be caught.
 
 ## Setup
 
-1. Two working upstream routes in `routes.toml` with different public IPs.
-   For an offline run use the test network instead:
+1. Two isolated identities (the default `tab-router --identities 2` path) so
+   each gets its own public IP through automatic local exits. For an offline
+   run use the test network instead:
    `go run ./tests/infra/cmd/tab-router-infra --out /tmp/tr` (egress
    `127.0.0.2` / `127.0.0.3`; on macOS first `sudo ifconfig lo0 alias
    127.0.0.2 up` and likewise for `.3`).

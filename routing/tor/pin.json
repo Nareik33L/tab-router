@@ -1,0 +1,27 @@
+{
+  "version": "15.0.21",
+  "source": "Tor Expert Bundle (https://www.torproject.org/download/tor/), stable as of 2026-09-20. Bundled so Tab Router can provision isolated exits with no user account.",
+  "platforms": {
+    "win64": {
+      "url": "https://archive.torproject.org/tor-package-archive/torbrowser/15.0.21/tor-expert-bundle-windows-x86_64-15.0.21.tar.gz",
+      "sha256": "f22b8b17cb18c9fa775dfcf68acf6a2fe788336535fe94645204ca85158aa490",
+      "binary": "tor/tor.exe"
+    },
+    "mac-arm64": {
+      "url": "https://archive.torproject.org/tor-package-archive/torbrowser/15.0.21/tor-expert-bundle-macos-aarch64-15.0.21.tar.gz",
+      "sha256": "83dec16412c1d97b91af603229481dd29f578e1485620ecffd9ac4aabcf6fb46",
+      "binary": "tor/tor"
+    },
+    "mac-x64": {
+      "url": "https://archive.torproject.org/tor-package-archive/torbrowser/15.0.21/tor-expert-bundle-macos-x86_64-15.0.21.tar.gz",
+      "sha256": "7e21f5dab4c627e2ff8e894b2039fa49bdd78d12b025f96893d4d6238c6577e4",
+      "binary": "tor/tor"
+    },
+    "linux64": {
+      "url": "https://archive.torproject.org/tor-package-archive/torbrowser/15.0.21/tor-expert-bundle-linux-x86_64-15.0.21.tar.gz",
+      "sha256": "40ef58c536d7077543a25707be5ba467f4b6bcdbafdc015daa25bcf9cb1edc11",
+      "binary": "tor/tor",
+      "note": "development/CI only; Linux is not a supported product platform"
+    }
+  }
+}

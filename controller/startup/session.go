@@ -17,6 +17,7 @@ import (
 	"github.com/Nareik33L/tab-router/controller/health"
 	"github.com/Nareik33L/tab-router/controller/identity"
 	"github.com/Nareik33L/tab-router/controller/verify"
+	"github.com/Nareik33L/tab-router/routing/manager"
 	"github.com/Nareik33L/tab-router/routing/provider"
 )
 
@@ -38,8 +39,10 @@ type Options struct {
 	Unicode bool
 	// ChromiumStderr receives Chromium's stderr (nil discards).
 	ChromiumStderr *os.File
-	// RouteDefs overrides loading routes.toml (tests).
+	// RouteDefs overrides loading routes.toml (tests / --routes).
 	RouteDefs []provider.RouteDef
+	// Provisioner, if set, is used instead of resolving one from disk.
+	Provisioner manager.Provisioner
 	// ChromiumExtraArgs are appended to every launch (tests only).
 	ChromiumExtraArgs []string
 }
@@ -56,6 +59,7 @@ type Session struct {
 	subjects []*verify.Subject
 	main     map[*verify.Subject]*browser.Page
 	monitor  *health.Monitor
+	prov     manager.Provisioner
 	hostIPv4 string
 	hostIPv6 string
 
@@ -72,20 +76,7 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 	s := &Session{Cfg: cfg, Report: rep, Started: time.Now(), main: map[*verify.Subject]*browser.Page{}, finalURL: map[*verify.Subject]string{}, done: make(chan struct{})}
 	rep.Header(Version, cfg.Identities, cfg.StartupURL)
 
-	// 1–3: configuration and routes.
-	defs := opts.RouteDefs
-	if defs == nil {
-		var err error
-		defs, err = config.LoadRoutes(cfg.RoutesPath)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if len(defs) < cfg.Identities {
-		return nil, fmt.Errorf("%d identities requested but only %d routes defined in %s (routes are never shared)", cfg.Identities, len(defs), cfg.RoutesPath)
-	}
-
-	// 4: identities.
+	// Identities first (persistent); routes are provisioned fresh each run.
 	mgr := identity.New(cfg.DataDir)
 	set, err := mgr.Open(cfg.Fresh)
 	if err != nil {
@@ -111,6 +102,31 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 	} else {
 		rep.Line("Using identity set %s", set.Name)
 	}
+	for _, id := range ids {
+		if id.JustCreated {
+			rep.Line("Creating %s...", id.Label())
+		}
+	}
+
+	prov := opts.Provisioner
+	if prov == nil {
+		p, _, err := manager.Resolve(ctx, cfg.DataDir, cfg.RoutesPath, opts.RouteDefs, cfg.Identities)
+		switch {
+		case err == nil:
+			prov = p
+		case errors.Is(err, manager.ErrTryRoutes):
+			defs, err := config.LoadRoutes(cfg.RoutesPath)
+			if err != nil {
+				set.Unlock()
+				return nil, err
+			}
+			prov = manager.Static{Defs: defs}
+		default:
+			set.Unlock()
+			return nil, err
+		}
+	}
+	s.prov = prov
 
 	// Chromium.
 	found, err := browser.Find(cfg.DataDir, opts.Pin)
@@ -124,15 +140,20 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 	}
 	rep.Line("Browser: %s (%s)", s.ChromeVer, found.Source)
 
-	// 5–7: routes and gates.
+	rep.Line("Network provider: %s", prov.Name())
+	rep.Line("Provisioning network routes...")
+	routes, err := prov.Provision(ctx, cfg.Identities)
+	if err != nil {
+		s.abort(ctx)
+		return nil, fmt.Errorf("%w: %v", ErrRouteFailed, err)
+	}
 	rep.Line("Starting %d identities...", cfg.Identities)
 	for _, id := range ids {
-		def := defs[id.RouteSlot-1]
-		route, err := provider.New(def)
-		if err != nil {
+		if id.RouteSlot-1 >= len(routes) {
 			s.abort(ctx)
-			return nil, fmt.Errorf("%w: %v", ErrRouteFailed, err)
+			return nil, fmt.Errorf("%w: provisioner returned %d routes, need slot %d", ErrRouteFailed, len(routes), id.RouteSlot)
 		}
+		route := routes[id.RouteSlot-1]
 		gate := provider.NewGate(route)
 		if _, err := gate.Listen(); err != nil {
 			s.abort(ctx)
@@ -271,6 +292,7 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 		EchoURL:         vopts.EchoURL,
 		Timeout:         vopts.Timeout,
 		OnEvent:         s.onHealthEvent,
+		Reestablish:     s.reestablish,
 	})
 	s.monitor.Start(context.Background())
 	return s, nil
@@ -457,6 +479,9 @@ func (s *Session) abort(ctx context.Context) {
 		_ = sub.Gate.Shutdown()
 		_ = sub.Route.Stop()
 	}
+	if s.prov != nil {
+		_ = s.prov.Close()
+	}
 	if s.set != nil {
 		s.set.Unlock()
 	}
@@ -502,6 +527,47 @@ func (s *Session) AllBrowsersExited() bool {
 		}
 	}
 	return true
+}
+
+// reestablish replaces a failed route with a new independent path for the
+// same identity. The gate stays closed until the health monitor re-verifies
+// egress; the replacement must not share another identity's public IP.
+func (s *Session) reestablish(ctx context.Context, sub *verify.Subject) error {
+	if s.prov == nil {
+		return fmt.Errorf("no provisioner")
+	}
+	sub.Gate.Close()
+	old := sub.Route
+	next, err := s.prov.Reestablish(ctx, sub.Identity.RouteSlot, old)
+	if err != nil {
+		return err
+	}
+	if err := next.Start(ctx); err != nil {
+		_ = next.Stop()
+		return err
+	}
+	timeout := time.Duration(s.Cfg.Verify.TimeoutSeconds) * time.Second
+	ip, err := provider.PublicIP(ctx, next.Dial, s.Cfg.Verify.IPEchoURL, timeout)
+	if err != nil {
+		_ = next.Stop()
+		return err
+	}
+	for _, other := range s.subjects {
+		if other == sub {
+			continue
+		}
+		if other.RouteIP != nil && ip.Equal(other.RouteIP) {
+			_ = next.Stop()
+			return fmt.Errorf("replacement shares egress %s with %s", ip, other.Label())
+		}
+	}
+	sub.Gate.SetRoute(next)
+	sub.Route = next
+	sub.RouteIP = ip
+	sub.BrowserIP = ip
+	next.SetStatus(provider.StatusVerifying)
+	_ = old.Stop()
+	return nil
 }
 
 func (s *Session) onHealthEvent(ev health.Event) {

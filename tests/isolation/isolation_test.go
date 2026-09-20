@@ -387,6 +387,90 @@ func TestAuthenticatedUpstreams(t *testing.T) {
 	}
 }
 
+// TestAutomaticProvisionWithoutRoutesFile is the product UX: identities + URL
+// with no routes.toml and no login. Tests inject RouteDefs (in-process infra)
+// so CI does not need a live Tor network; production Resolve defaults to tor.
+func TestAutomaticProvisionWithoutRoutesFile(t *testing.T) {
+	h := newHarness(t)
+	ctx := ctxT(t)
+	cfg := h.config(2, "", false)
+	if _, err := os.Stat(cfg.RoutesPath); !os.IsNotExist(err) {
+		t.Fatalf("routes.toml should not exist: %v", err)
+	}
+	sess, err := h.run(ctx, cfg)
+	if err != nil {
+		t.Fatalf("startup failed: %v\n%s", err, h.out)
+	}
+	defer sess.Shutdown(ctx)
+	out := h.out.String()
+	for _, want := range []string{
+		"Network provider:",
+		"Provisioning network routes...",
+		"TAB ROUTER READY",
+		"Identity 001 ≠ Identity 002",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\n%s", want, out)
+		}
+	}
+}
+
+// TestRoutesTomlFallbackStillWorks keeps the power-user override: an existing
+// routes.toml is used when no provider.toml is present and no RouteDefs are
+// injected.
+func TestRoutesTomlFallbackStillWorks(t *testing.T) {
+	h := newHarness(t)
+	ctx := ctxT(t)
+	cfg := h.config(2, "", false)
+	writeRoutesTOML(t, cfg.RoutesPath, h.defs)
+	h.defs = nil
+	sess, err := h.run(ctx, cfg)
+	if err != nil {
+		t.Fatalf("startup from routes.toml failed: %v\n%s", err, h.out)
+	}
+	defer sess.Shutdown(ctx)
+	if !strings.Contains(h.out.String(), "TAB ROUTER READY") {
+		t.Errorf("not READY:\n%s", h.out)
+	}
+}
+
+// TestFreshLeavesProviderConfig: --fresh rotates browser identities only.
+func TestFreshLeavesProviderConfig(t *testing.T) {
+	h := newHarness(t)
+	ctx := ctxT(t)
+	path := filepath.Join(h.data, "provider.toml")
+	body := "type = \"mullvad\"\naccount = \"1234567890123456\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := h.run(ctx, h.config(2, "", true))
+	if err != nil {
+		t.Fatalf("fresh start failed: %v\n%s", err, h.out)
+	}
+	sess.Shutdown(ctx)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("--fresh removed provider.toml: %v", err)
+	}
+	if !strings.Contains(string(b), "1234567890123456") {
+		t.Fatalf("provider.toml rewritten unexpectedly: %s", b)
+	}
+}
+
+func writeRoutesTOML(t *testing.T, path string, defs []provider.RouteDef) {
+	t.Helper()
+	var b strings.Builder
+	for _, d := range defs {
+		fmt.Fprintf(&b, "[[route]]\nid = %q\ntype = %q\naddress = %q\n", d.ID, d.Type, d.Address)
+		if d.Username != "" {
+			fmt.Fprintf(&b, "username = %q\npassword = %q\n", d.Username, d.Password)
+		}
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func waitFor(t *testing.T, d time.Duration, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(d)
