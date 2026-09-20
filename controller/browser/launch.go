@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nareik33L/tab-router/controller/identity"
 	"github.com/Nareik33L/tab-router/routing/platform"
 )
 
@@ -20,6 +22,10 @@ type LaunchOptions struct {
 	GateAddr string
 	// Headless runs without a window (tests and CI).
 	Headless bool
+	// Environment is the identity's pinned device configuration.
+	Environment identity.Environment
+	// DownloadDir is the absolute download directory for the identity.
+	DownloadDir string
 	// ExtraArgs are appended verbatim (dev builds only).
 	ExtraArgs []string
 	// Stderr receives Chromium's stderr; nil discards it.
@@ -33,6 +39,7 @@ type Browser struct {
 	cdp    *Client
 	plat   platform.Provider
 	opts   LaunchOptions
+	env    identity.Environment
 	exited chan struct{}
 }
 
@@ -46,21 +53,26 @@ func Launch(ctx context.Context, opts LaunchOptions) (*Browser, error) {
 	if err := os.MkdirAll(opts.ProfileDir, 0o700); err != nil {
 		return nil, err
 	}
-	if err := SeedPreferences(opts.ProfileDir); err != nil {
+	env := opts.Environment
+	if env.Locale == "" {
+		env = identity.NewEnvironment(1, identity.EnvironmentDefaults{})
+	}
+	if err := SeedPreferences(opts.ProfileDir, env, opts.DownloadDir); err != nil {
 		return nil, fmt.Errorf("browser: seed preferences: %w", err)
 	}
 	args := append([]string{"--user-data-dir=" + opts.ProfileDir}, HardeningFlags(opts.GateAddr)...)
+	args = append(args, EnvironmentFlags(env)...)
 	if opts.Headless {
 		args = append(args, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--mute-audio")
 	}
 	args = append(args, opts.ExtraArgs...)
 	args = append(args, "about:blank")
 
-	proc, tr, err := spawnWithPipe(opts.Binary, args, scrubEnv(os.Environ()), opts.ProfileDir, opts.Stderr)
+	proc, tr, err := spawnWithPipe(opts.Binary, args, scrubEnv(os.Environ(), env.Timezone), opts.ProfileDir, opts.Stderr)
 	if err != nil {
 		return nil, fmt.Errorf("browser: start %s: %w", filepath.Base(opts.Binary), err)
 	}
-	b := &Browser{proc: proc, pid: proc.Pid, plat: platform.Current(), opts: opts, exited: make(chan struct{})}
+	b := &Browser{proc: proc, pid: proc.Pid, plat: platform.Current(), opts: opts, env: env, exited: make(chan struct{})}
 	go func() {
 		_, _ = proc.Wait()
 		close(b.exited)
@@ -76,23 +88,85 @@ func Launch(ctx context.Context, opts LaunchOptions) (*Browser, error) {
 		_ = b.Kill()
 		return nil, fmt.Errorf("browser: devtools handshake: %w", err)
 	}
+	if err := b.enforceEnvironment(hctx); err != nil {
+		_ = b.Kill()
+		return nil, fmt.Errorf("browser: apply environment: %w", err)
+	}
 	return b, nil
 }
 
+// EnvironmentFlags translates the pinned environment into Chromium flags.
+func EnvironmentFlags(env identity.Environment) []string {
+	flags := []string{
+		"--lang=" + env.Locale,
+		fmt.Sprintf("--window-size=%d,%d", env.WindowWidth, env.WindowHeight),
+		fmt.Sprintf("--window-position=%d,%d", env.WindowX, env.WindowY),
+		fmt.Sprintf("--force-device-scale-factor=%g", env.DeviceScaleFactor),
+		// A fixed colour profile keeps rendering identical across displays.
+		"--force-color-profile=srgb",
+	}
+	if env.ColorScheme == "dark" {
+		flags = append(flags, "--force-dark-mode")
+	}
+	return flags
+}
+
 // scrubEnv removes proxy-related variables so nothing but our flags can
-// influence Chromium's network configuration.
-func scrubEnv(env []string) []string {
-	out := make([]string, 0, len(env))
+// influence Chromium's network configuration, and pins TZ to the identity's
+// timezone (honoured natively on macOS; enforced via DevTools everywhere).
+func scrubEnv(env []string, timezone string) []string {
+	out := make([]string, 0, len(env)+1)
 	for _, kv := range env {
 		k, _, _ := strings.Cut(kv, "=")
 		switch strings.ToLower(k) {
-		case "http_proxy", "https_proxy", "all_proxy", "no_proxy", "socks_proxy", "ftp_proxy":
+		case "http_proxy", "https_proxy", "all_proxy", "no_proxy", "socks_proxy", "ftp_proxy", "tz":
 			continue
 		}
 		out = append(out, kv)
 	}
+	if timezone != "" {
+		out = append(out, "TZ="+timezone)
+	}
 	return out
 }
+
+// enforceEnvironment turns on auto-attach so that every page target the
+// browser creates (including tabs the user opens later) receives the
+// identity's timezone override before any script runs.
+func (b *Browser) enforceEnvironment(ctx context.Context) error {
+	events, cancel := b.cdp.Subscribe("", "Target.attachedToTarget")
+	go b.autoAttachLoop(events, cancel)
+	return b.cdp.Call(ctx, "", "Target.setAutoAttach", map[string]any{
+		"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true,
+	}, nil)
+}
+
+func (b *Browser) autoAttachLoop(events <-chan Event, cancel func()) {
+	defer cancel()
+	for ev := range events {
+		var p struct {
+			SessionID  string `json:"sessionId"`
+			TargetInfo struct {
+				Type string `json:"type"`
+			} `json:"targetInfo"`
+			WaitingForDebugger bool `json:"waitingForDebugger"`
+		}
+		if err := json.Unmarshal(ev.Params, &p); err != nil || p.SessionID == "" {
+			continue
+		}
+		ctx, done := context.WithTimeout(context.Background(), 10*time.Second)
+		if p.TargetInfo.Type == "page" || p.TargetInfo.Type == "iframe" {
+			_ = b.cdp.Call(ctx, p.SessionID, "Emulation.setTimezoneOverride", map[string]any{"timezoneId": b.env.Timezone}, nil)
+		}
+		if p.WaitingForDebugger {
+			_ = b.cdp.Call(ctx, p.SessionID, "Runtime.runIfWaitingForDebugger", nil, nil)
+		}
+		done()
+	}
+}
+
+// Environment returns the environment the browser was launched with.
+func (b *Browser) Environment() identity.Environment { return b.env }
 
 // PID is the root Chromium process id.
 func (b *Browser) PID() int { return b.pid }

@@ -25,9 +25,14 @@ type Identity struct {
 	Index     int       `json:"index"`      // 1-based
 	RouteSlot int       `json:"route_slot"` // equals Index; pinned for life
 	Created   time.Time `json:"created"`
-	Dir       string    `json:"-"`
-	Profile   string    `json:"-"`
+	// Environment is pinned at creation and never changes automatically.
+	Environment Environment `json:"environment"`
+	Dir         string      `json:"-"`
+	Profile     string      `json:"-"`
 }
+
+// DownloadPath is the absolute download directory for the identity.
+func (id Identity) DownloadPath() string { return filepath.Join(id.Dir, id.Environment.DownloadDir) }
 
 // Label is the human form, "Identity 001".
 func (id Identity) Label() string { return fmt.Sprintf("Identity %03d", id.Index) }
@@ -168,15 +173,22 @@ func (s *Set) Unlock() {
 	}
 }
 
+// EnvironmentFor supplies the environment for a newly created identity.
+// It is only consulted when an identity does not yet exist.
+type EnvironmentFor func(index int) Environment
+
 // Ensure loads or creates identities 1..n in the set. Existing identities are
-// never modified; missing ones are created.
-func (s *Set) Ensure(n int) ([]Identity, error) {
+// never modified; missing ones are created with envFor(index).
+func (s *Set) Ensure(n int, envFor EnvironmentFor) ([]Identity, error) {
 	if n < 1 {
 		return nil, fmt.Errorf("identity count must be >= 1")
 	}
+	if envFor == nil {
+		envFor = func(i int) Environment { return NewEnvironment(i, EnvironmentDefaults{}) }
+	}
 	out := make([]Identity, 0, n)
 	for i := 1; i <= n; i++ {
-		id, err := s.loadOrCreate(i)
+		id, err := s.loadOrCreate(i, envFor)
 		if err != nil {
 			return nil, err
 		}
@@ -225,22 +237,32 @@ func (s *Set) load(i int) (Identity, error) {
 	if id.Index != i {
 		return Identity{}, fmt.Errorf("%s/identity.json: index %d does not match directory", dir, id.Index)
 	}
+	if err := id.Environment.Validate(); err != nil {
+		return Identity{}, fmt.Errorf("%s/identity.json: %w", dir, err)
+	}
 	id.Dir = dir
 	id.Profile = filepath.Join(dir, "profile")
 	return id, nil
 }
 
-func (s *Set) loadOrCreate(i int) (Identity, error) {
+func (s *Set) loadOrCreate(i int, envFor EnvironmentFor) (Identity, error) {
 	if id, err := s.load(i); err == nil {
 		return id, nil
 	} else if !os.IsNotExist(err) {
 		return Identity{}, err
 	}
 	dir := s.dirFor(i)
+	env := envFor(i)
+	if err := env.Validate(); err != nil {
+		return Identity{}, err
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "profile"), 0o700); err != nil {
 		return Identity{}, err
 	}
-	id := Identity{ID: fmt.Sprintf("identity-%03d", i), Index: i, RouteSlot: i, Created: time.Now().UTC()}
+	if err := os.MkdirAll(filepath.Join(dir, env.DownloadDir), 0o700); err != nil {
+		return Identity{}, err
+	}
+	id := Identity{ID: fmt.Sprintf("identity-%03d", i), Index: i, RouteSlot: i, Created: time.Now().UTC(), Environment: env}
 	b, _ := json.MarshalIndent(id, "", "  ")
 	if err := os.WriteFile(filepath.Join(dir, "identity.json"), b, 0o600); err != nil {
 		return Identity{}, err
