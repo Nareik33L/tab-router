@@ -443,10 +443,11 @@ func isTerminal(f *os.File) bool {
 // Chromium is already configured. Release binaries use this so the user
 // does not need a source checkout.
 func ensureChromium(cfg config.Config) error {
-	if _, err := browser.Find(cfg.DataDir, chromium.Pin()); err == nil {
+	pin := chromium.Pin()
+	if found, err := browser.Find(cfg.DataDir, pin); err == nil && found.Source != "system" {
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "Chromium not found; downloading pinned %s…\n", chromium.Pin().Version)
+	fmt.Fprintf(os.Stderr, "Chromium not found; downloading pinned %s…\n", pin.Version)
 	_, err := chromium.Install(filepath.Join(cfg.DataDir, "chromium"), "", os.Stderr)
 	return err
 }
