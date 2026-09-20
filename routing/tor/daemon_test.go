@@ -77,6 +77,52 @@ func TestParseCircuitExit(t *testing.T) {
 	}
 }
 
+func TestParseCircuitExitPrefersLastGeneral(t *testing.T) {
+	const (
+		a = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		b = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+		c = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+		d = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+		e = "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+		f = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+	)
+	status := strings.Join([]string{
+		"5 BUILT $" + a + ",$" + b + ",$" + c + " PURPOSE=GENERAL SOCKS_USERNAME=\"identity-002-abc\"",
+		"6 BUILT $" + d + ",$" + e + ",$" + f + " PURPOSE=GENERAL SOCKS_USERNAME=\"identity-002-abc\"",
+	}, "\n")
+	fp, err := parseCircuitExit(status, "identity-002-abc")
+	if err != nil || fp != f {
+		t.Fatalf("want last general exit, got %q %v", fp, err)
+	}
+}
+
+func TestExitForSOCKSUserPrefersStreamCircuit(t *testing.T) {
+	const (
+		oldExit  = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		usedExit = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	)
+	circs := strings.Join([]string{
+		"5 BUILT $CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC,$" + oldExit + " PURPOSE=GENERAL SOCKS_USERNAME=\"identity-002-abc\"",
+		"7 BUILT $DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD,$" + usedExit + " PURPOSE=GENERAL SOCKS_USERNAME=\"identity-002-abc\"",
+	}, "\n")
+	streams := `21 SUCCEEDED 7 api.ipify.org:443 PURPOSE=USER SOCKS_USERNAME="identity-002-abc"`
+	fp, err := exitForSOCKSUser(streams, circs, "identity-002-abc")
+	if err != nil || fp != usedExit {
+		t.Fatalf("want stream circuit exit, got %q %v", fp, err)
+	}
+	if id := parseStreamCircuit(streams, "identity-002-abc"); id != "7" {
+		t.Fatalf("stream circuit %q", id)
+	}
+	fp, err = parseCircuitExitByID(circs, "7")
+	if err != nil || fp != usedExit {
+		t.Fatalf("by id: %q %v", fp, err)
+	}
+	ids := parseGeneralCircuitIDs(circs)
+	if len(ids) != 2 || ids[0] != "5" || ids[1] != "7" {
+		t.Fatalf("general ids %#v", ids)
+	}
+}
+
 func TestControlCmdDataReply(t *testing.T) {
 	server, client := net.Pipe()
 	defer client.Close()

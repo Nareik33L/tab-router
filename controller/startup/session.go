@@ -200,6 +200,16 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 		if pinner, ok := s.prov.(manager.SessionExits); ok {
 			if err := pinner.PinExit(ctx, sub.Identity.RouteSlot, sub.Route.Def().Username); err != nil {
 				rep.Line("%s: session exit not pinned (%v); an IP change will fail-closed", sub.Label(), err)
+			} else {
+				timeout := vopts.Timeout
+				if timeout <= 0 {
+					timeout = 20 * time.Second
+				}
+				if ip, err := provider.PublicIP(ctx, sub.Route.Dial, vopts.EchoURL, timeout); err == nil && ip != nil {
+					// Pin may close leftover circuits; the session IP is whatever
+					// the pinned exit emits now, not a stale V1 probe on another path.
+					sub.RouteIP = ip
+				}
 			}
 		}
 		sub.Route.SetStatus(provider.StatusReady)

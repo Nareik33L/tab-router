@@ -325,11 +325,15 @@ func (d *Daemon) pinSOCKSUserOnce(socksUser string) error {
 	if d.ctrl == nil {
 		return fmt.Errorf("tor control connection is down")
 	}
-	out, err := controlCmd(d.ctrl, d.ctrlR, "GETINFO circuit-status")
+	streams, err := controlCmd(d.ctrl, d.ctrlR, "GETINFO stream-status")
 	if err != nil {
 		return err
 	}
-	fp, err := parseCircuitExit(out, socksUser)
+	circs, err := controlCmd(d.ctrl, d.ctrlR, "GETINFO circuit-status")
+	if err != nil {
+		return err
+	}
+	fp, err := exitForSOCKSUser(streams, circs, socksUser)
 	if err != nil {
 		return err
 	}
@@ -337,6 +341,11 @@ func (d *Daemon) pinSOCKSUserOnce(socksUser string) error {
 		return err
 	}
 	d.pinnedExit = fp
+	// Drop leftover GENERAL circuits so a new stream cannot attach to a
+	// different exit that happened to share this SOCKS username.
+	for _, id := range parseGeneralCircuitIDs(circs) {
+		_, _ = controlCmd(d.ctrl, d.ctrlR, "CLOSECIRCUIT "+id)
+	}
 	fmt.Fprintf(d.Log, "pinned SOCKS user to exit $%s\n", fp)
 	return nil
 }
@@ -510,26 +519,128 @@ var (
 	socksUserBare    = regexp.MustCompile(`SOCKS_USERNAME=(\S+)`)
 )
 
+func stripInfoKey(line, key string) string {
+	line = strings.TrimSpace(line)
+	prefix := key + "="
+	if strings.HasPrefix(line, prefix) {
+		return line[len(prefix):]
+	}
+	return line
+}
+
+func lastHopFingerprint(line string) string {
+	hops := hopFingerprintRe.FindAllStringSubmatch(line, -1)
+	if len(hops) == 0 {
+		return ""
+	}
+	return strings.ToUpper(hops[len(hops)-1][1])
+}
+
+// exitForSOCKSUser prefers the circuit that actually carried a stream for
+// socksUser (GETINFO stream-status). Falling back to circuit-status alone
+// can pin a predicted/extra circuit and then the browser egress != V1 IP.
+func exitForSOCKSUser(streams, circs, socksUser string) (string, error) {
+	if id := parseStreamCircuit(streams, socksUser); id != "" {
+		if fp, err := parseCircuitExitByID(circs, id); err == nil {
+			return fp, nil
+		}
+	}
+	return parseCircuitExit(circs, socksUser)
+}
+
+// parseStreamCircuit returns the most recent non-zero circuit id used by
+// socksUser (SUCCEEDED/CLOSED/FAILED snapshots).
+func parseStreamCircuit(status, socksUser string) string {
+	if socksUser == "" {
+		return ""
+	}
+	var circ string
+	for _, line := range strings.Split(status, "\n") {
+		line = stripInfoKey(line, "stream-status")
+		if line == "" {
+			continue
+		}
+		if circuitSOCKSUser(line) != socksUser && !strings.Contains(line, socksUser) {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		st, id := fields[1], fields[2]
+		if id == "0" {
+			continue
+		}
+		switch st {
+		case "SUCCEEDED", "CLOSED", "FAILED", "DETACHED", "SENTCONNECT":
+			circ = id
+		}
+	}
+	return circ
+}
+
+func parseCircuitExitByID(status, circID string) (string, error) {
+	if circID == "" {
+		return "", fmt.Errorf("no circuit id")
+	}
+	for _, line := range strings.Split(status, "\n") {
+		line = stripInfoKey(line, "circuit-status")
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != circID || fields[1] != "BUILT" {
+			continue
+		}
+		if fp := lastHopFingerprint(line); fp != "" {
+			return fp, nil
+		}
+	}
+	return "", fmt.Errorf("no BUILT circuit %s", circID)
+}
+
+func parseGeneralCircuitIDs(status string) []string {
+	var ids []string
+	for _, line := range strings.Split(status, "\n") {
+		line = stripInfoKey(line, "circuit-status")
+		if !strings.Contains(line, "BUILT") || strings.Contains(line, "PURPOSE=HS_") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[1] == "BUILT" {
+			ids = append(ids, fields[0])
+		}
+	}
+	return ids
+}
+
 // parseCircuitExit returns the exit fingerprint (40 hex chars, no $) of a
-// BUILT circuit that carried socksUser.
+// BUILT circuit that carried socksUser. Prefers PURPOSE=GENERAL and the
+// last matching circuit when several exist.
 func parseCircuitExit(status, socksUser string) (string, error) {
 	if socksUser == "" {
 		return "", fmt.Errorf("no SOCKS username")
 	}
+	var general, any string
 	for _, line := range strings.Split(status, "\n") {
-		line = strings.TrimSpace(line)
+		line = stripInfoKey(line, "circuit-status")
 		if line == "" || !strings.Contains(line, "BUILT") {
 			continue
 		}
-		user := circuitSOCKSUser(line)
-		if user != socksUser {
+		if circuitSOCKSUser(line) != socksUser {
 			continue
 		}
-		hops := hopFingerprintRe.FindAllStringSubmatch(line, -1)
-		if len(hops) == 0 {
+		fp := lastHopFingerprint(line)
+		if fp == "" {
 			continue
 		}
-		return strings.ToUpper(hops[len(hops)-1][1]), nil
+		any = fp
+		if strings.Contains(line, "PURPOSE=GENERAL") || !strings.Contains(line, "PURPOSE=") {
+			general = fp
+		}
+	}
+	if general != "" {
+		return general, nil
+	}
+	if any != "" {
+		return any, nil
 	}
 	return "", fmt.Errorf("no BUILT circuit for SOCKS user")
 }
