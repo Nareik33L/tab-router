@@ -31,7 +31,7 @@ mkdir -p ~/tab-router-app
 cd ~/tab-router-app
 curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-apple-silicon
 chmod +x tab-router
-xattr -d com.apple.quarantine tab-router
+xattr -c tab-router 2>/dev/null
 ./tab-router
 ```
 
@@ -54,8 +54,9 @@ Two browser windows should open. You never create a route file and you
 never log in.
 
 If macOS says the app is damaged or cannot be opened, run
-`xattr -d com.apple.quarantine ~/tab-router-app/tab-router`, then retry
-`./tab-router` from `~/tab-router-app`.
+`xattr -c ~/tab-router-app/tab-router` then retry `./tab-router` from
+`~/tab-router-app`. If Terminal says there is no quarantine attribute,
+ignore that and start the program.
 
 ### Mac (Intel)
 
@@ -64,7 +65,7 @@ mkdir -p ~/tab-router-app
 cd ~/tab-router-app
 curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-intel
 chmod +x tab-router
-xattr -d com.apple.quarantine tab-router
+xattr -c tab-router 2>/dev/null
 ./tab-router --identities 2 --url https://example.com
 ```
 
