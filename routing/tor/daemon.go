@@ -60,6 +60,10 @@ func (d *Daemon) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := prepareExecutable(d.Binary); err != nil {
+		logf.Close()
+		return fmt.Errorf("prepare tor: %w", err)
+	}
 	libDir := filepath.Dir(d.Binary)
 	cmd := exec.Command(d.Binary, "-f", torrc)
 	hideWindow(cmd)
