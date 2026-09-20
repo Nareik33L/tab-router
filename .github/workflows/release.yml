@@ -1,0 +1,50 @@
+# Publish Windows and macOS binaries to a GitHub Release when a v* tag is pushed.
+#
+#   git tag v0.1.0
+#   git push origin v0.1.0
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: build product binaries
+        run: make build-all VERSION=${GITHUB_REF_NAME}
+      - name: checksums
+        working-directory: dist
+        run: sha256sum * | tee SHA256SUMS
+      - name: publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          generate_release_notes: true
+          files: dist/*
+          body: |
+            Tab Router **${{ github.ref_name }}** — two isolated Chromium identities, each with its own persistent profile, device environment and network route.
+
+            ### Install
+
+            1. Download the binary for your OS from this release.
+            2. `go run ./scripts/fetch-chromium` from a clone, or run the binary once and follow the prompt to fetch the pinned Chromium.
+            3. Create `routes.toml` (see README) with one SOCKS5/HTTP upstream per identity.
+            4. Run:
+
+            ```
+            tab-router --identities 2 --url https://example.com
+            ```
+
+            Product platforms: **Windows amd64**, **macOS Apple Silicon**, **macOS Intel**. Linux is a development/CI host only.
+
+            Unsigned builds — macOS Gatekeeper will ask you to allow the binary (`xattr -d com.apple.quarantine tab-router`). Windows SmartScreen the same.
