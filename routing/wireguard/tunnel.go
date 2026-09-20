@@ -116,7 +116,10 @@ func Open(cfg Config) (*Tunnel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("netstack: %w", err)
 	}
-	dev := device.NewDevice(tun, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, ""))
+	// StdNetBind on every OS: Windows DefaultBind is WinRingBind, which
+	// cannot loop two devices in one process (CI) and is unnecessary for a
+	// netstack client that is not using wintun.
+	dev := device.NewDevice(tun, conn.NewStdNetBind(), device.NewLogger(device.LogLevelSilent, ""))
 	if err := dev.IpcSet(uapi); err != nil {
 		dev.Close()
 		return nil, fmt.Errorf("wireguard configure: %w", err)

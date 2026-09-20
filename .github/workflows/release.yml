@@ -37,14 +37,19 @@ jobs:
             ### Install
 
             1. Download the binary for your OS from this release.
-            2. `go run ./scripts/fetch-chromium` from a clone, or run the binary once and follow the prompt to fetch the pinned Chromium.
-            3. Create `routes.toml` (see README) with one SOCKS5/HTTP upstream per identity.
-            4. Run:
+            2. Run the binary once; it fetches the pinned Chromium into the data directory.
+            3. One-time network setup (a Mullvad account; two identities need two public IPs):
+
+            ```
+            tab-router provider login
+            ```
+
+            4. Start:
 
             ```
             tab-router --identities 2 --url https://example.com
             ```
 
-            Product platforms: **Windows amd64**, **macOS Apple Silicon**, **macOS Intel**. Linux is a development/CI host only.
+            `routes.toml` is not required. Product platforms: **Windows amd64**, **macOS Apple Silicon**, **macOS Intel**. Linux is a development/CI host only.
 
             Unsigned builds — macOS Gatekeeper will ask you to allow the binary (`xattr -d com.apple.quarantine tab-router`). Windows SmartScreen the same.

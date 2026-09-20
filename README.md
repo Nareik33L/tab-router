@@ -7,9 +7,9 @@ window, downloads) and its own network route with its own public IP.
 Traffic from one identity can never fall back to another route or to the
 host's normal connection: if a route is down, that identity is blocked.
 
-Status: **v0.1.0 — two-identity milestone.** The identity count is capped at
-2 until the isolation suite has been signed off (see
-[`docs/ENGINEERING_PLAN.md`](docs/ENGINEERING_PLAN.md), M9).
+Status: **v0.1.0 — two-identity milestone with automatic route provisioning.**
+The identity count is capped at 2 until the isolation suite has been signed
+off (see [`docs/ENGINEERING_PLAN.md`](docs/ENGINEERING_PLAN.md), M9).
 
 ## Install from a GitHub Release
 
