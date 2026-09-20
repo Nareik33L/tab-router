@@ -1,18 +1,21 @@
 GO ?= go
-BIN ?= bin
+BIN ?= dist
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo v0.1.0)
+LDFLAGS := -s -w -X github.com/Nareik33L/tab-router/controller/startup.Version=$(VERSION)
 
 .PHONY: all build build-all test test-unit test-isolation vet fmt fetch-chromium infra clean
 
 all: vet build
 
 build:
-	$(GO) build -trimpath -ldflags="-s -w" -o $(BIN)/tab-router ./cmd/tab-router
+	$(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/tab-router ./cmd/tab-router
 
 # Product targets: Windows and macOS. Linux is a dev/CI host only.
 build-all:
-	GOOS=windows GOARCH=amd64 $(GO) build -trimpath -ldflags="-s -w" -o $(BIN)/windows-amd64/tab-router.exe ./cmd/tab-router
-	GOOS=darwin  GOARCH=arm64 $(GO) build -trimpath -ldflags="-s -w" -o $(BIN)/darwin-arm64/tab-router ./cmd/tab-router
-	GOOS=darwin  GOARCH=amd64 $(GO) build -trimpath -ldflags="-s -w" -o $(BIN)/darwin-amd64/tab-router ./cmd/tab-router
+	mkdir -p $(BIN)
+	GOOS=windows GOARCH=amd64 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/tab-router-$(VERSION)-windows-amd64.exe ./cmd/tab-router
+	GOOS=darwin  GOARCH=arm64 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/tab-router-$(VERSION)-darwin-arm64 ./cmd/tab-router
+	GOOS=darwin  GOARCH=amd64 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN)/tab-router-$(VERSION)-darwin-amd64 ./cmd/tab-router
 
 vet:
 	$(GO) vet ./...
@@ -40,4 +43,4 @@ infra:
 	$(GO) run ./tests/infra/cmd/tab-router-infra --out ./data
 
 clean:
-	rm -rf $(BIN)
+	rm -rf $(BIN) bin

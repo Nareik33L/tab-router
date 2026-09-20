@@ -20,8 +20,9 @@ import (
 	"github.com/Nareik33L/tab-router/routing/provider"
 )
 
-// Version is the product version string.
-const Version = "v0.1"
+// Version is the product version string. Release builds overwrite it via
+// -ldflags "-X github.com/Nareik33L/tab-router/controller/startup.Version=vX.Y.Z".
+var Version = "v0.1.0"
 
 // Exit codes, matching docs/SCOPE.md §18.
 var (

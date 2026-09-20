@@ -7,9 +7,25 @@ window, downloads) and its own network route with its own public IP.
 Traffic from one identity can never fall back to another route or to the
 host's normal connection: if a route is down, that identity is blocked.
 
-Status: **v0.1 — two-identity milestone.** The identity count is capped at
+Status: **v0.1.0 — two-identity milestone.** The identity count is capped at
 2 until the isolation suite has been signed off (see
 [`docs/ENGINEERING_PLAN.md`](docs/ENGINEERING_PLAN.md), M9).
+
+## Install from a GitHub Release
+
+Download the binary for your platform from
+[Releases](https://github.com/Nareik33L/tab-router/releases):
+
+| File | Platform |
+| --- | --- |
+| `tab-router-vX.Y.Z-windows-amd64.exe` | Windows 10/11 (x64) |
+| `tab-router-vX.Y.Z-darwin-arm64` | macOS Apple Silicon |
+| `tab-router-vX.Y.Z-darwin-amd64` | macOS Intel |
+
+On first run the binary downloads the pinned Chromium into the data
+directory. Create `routes.toml` as below. Unsigned builds: on macOS run
+`xattr -d com.apple.quarantine tab-router`; on Windows, allow the SmartScreen
+prompt.
 
 ## How it works
 
@@ -33,7 +49,7 @@ Status: **v0.1 — two-identity milestone.** The identity count is capped at
 
 Read [`docs/SCOPE.md`](docs/SCOPE.md) for the full requirements.
 
-## Quick start
+## Quick start (from source)
 
 Requirements: Go 1.22+, and two upstream SOCKS5 or HTTP proxies you control
 (one per identity) that egress from different public IPs.
@@ -70,7 +86,7 @@ bin/tab-router --identities 2 --url https://example.com
 ```
 
 ```
-TAB ROUTER v0.1
+TAB ROUTER v0.1.0
 Identities: 2   Startup URL: https://example.com
 Using identity set set-2026-09-20T14-18-36Z
 Browser: Chromium 153.0.8010.52 (pinned)

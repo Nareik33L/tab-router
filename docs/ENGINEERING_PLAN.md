@@ -19,9 +19,9 @@ the scope wins; open an ADR in `docs/adr/` if you need to deviate.
 | M9 lift the 2-identity cap | not started (by design) | `config.MaxIdentities = 2` |
 | Add-on: per-identity pinned environment | done | ADR-0002, `identity.Environment`, `TestEnvironmentApplied`, `TestPersistenceAndFresh` |
 
-Remaining before a v0.1 tag: run the isolation suite on real Windows and
-macOS hosts (CI jobs are defined), the manual `docs/leak-testing.md` pass
-with a packet capture, and code signing.
+Remaining before a v0.1 tag: the manual `docs/leak-testing.md` pass with a
+packet capture on real Windows/macOS hardware, and code signing. CI now
+builds with Go 1.24 and publishes GitHub Release artifacts from `v*` tags.
 
 ## 0. Read this first
 

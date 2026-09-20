@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Nareik33L/tab-router/browser/chromium"
+	"github.com/Nareik33L/tab-router/controller/browser"
 	"github.com/Nareik33L/tab-router/controller/config"
 	"github.com/Nareik33L/tab-router/controller/startup"
 	"github.com/Nareik33L/tab-router/ipc"
@@ -130,6 +132,10 @@ func start(ov config.Overrides, unicode bool) int {
 	if _, err := ipc.Dial(cfg.DataDir); err == nil {
 		fmt.Fprintln(os.Stderr, "tab-router is already running; use --status or --stop")
 		return exitRunning
+	}
+	if err := ensureChromium(cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return exitBrowser
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -292,6 +298,10 @@ func runDiagnostics(ov config.Overrides, asJSON, unicode bool) int {
 		// full verification, then tear it down.
 		cfg.Headless = true
 		cfg.StartupURL = ""
+		if err := ensureChromium(cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return exitBrowser
+		}
 		ctx := context.Background()
 		rep := startup.NewReporter(os.Stderr, unicode)
 		sess, err := startup.Run(ctx, cfg, rep, startup.Options{Pin: chromium.Pin(), Unicode: unicode})
@@ -404,4 +414,16 @@ func isTerminal(f *os.File) bool {
 		return false
 	}
 	return st.Mode()&os.ModeCharDevice != 0
+}
+
+// ensureChromium downloads the pinned build into the data dir when no
+// Chromium is already configured. Release binaries use this so the user
+// does not need a source checkout.
+func ensureChromium(cfg config.Config) error {
+	if _, err := browser.Find(cfg.DataDir, chromium.Pin()); err == nil {
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "Chromium not found; downloading pinned %s…\n", chromium.Pin().Version)
+	_, err := chromium.Install(filepath.Join(cfg.DataDir, "chromium"), "", os.Stderr)
+	return err
 }

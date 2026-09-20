@@ -62,6 +62,11 @@ Applied from the identity's pinned `Environment` (`identity.json`).
 
 `--headless=new --disable-gpu --hide-scrollbars --mute-audio`.
 
+On Linux (CI/dev host only), `--disable-dev-shm-usage` is always added.
+`--no-sandbox` and `--disable-setuid-sandbox` are added when running as
+root, when `CI` is set, or when `TAB_ROUTER_NO_SANDBOX=1`. Product
+platforms (Windows, macOS) never receive these flags.
+
 ## Environment scrubbing
 
 Before launch the controller removes `HTTP_PROXY`, `HTTPS_PROXY`,

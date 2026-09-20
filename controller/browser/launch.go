@@ -1,10 +1,12 @@
 package browser
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,15 +64,36 @@ func Launch(ctx context.Context, opts LaunchOptions) (*Browser, error) {
 	}
 	args := append([]string{"--user-data-dir=" + opts.ProfileDir}, HardeningFlags(opts.GateAddr)...)
 	args = append(args, EnvironmentFlags(env)...)
+	args = append(args, PlatformFlags()...)
 	if opts.Headless {
 		args = append(args, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--mute-audio")
 	}
 	args = append(args, opts.ExtraArgs...)
 	args = append(args, "about:blank")
 
-	proc, tr, err := spawnWithPipe(opts.Binary, args, scrubEnv(os.Environ(), env.Timezone), opts.ProfileDir, opts.Stderr)
+	stderr := opts.Stderr
+	var captured *bytes.Buffer
+	var copied chan struct{}
+	if stderr == nil {
+		r, w, err := os.Pipe()
+		if err != nil {
+			return nil, err
+		}
+		captured = new(bytes.Buffer)
+		copied = make(chan struct{})
+		go func() { _, _ = io.Copy(captured, r); r.Close(); close(copied) }()
+		stderr = w
+	}
+
+	proc, tr, err := spawnWithPipe(opts.Binary, args, scrubEnv(os.Environ(), env.Timezone), opts.ProfileDir, stderr)
 	if err != nil {
+		if copied != nil {
+			stderr.Close()
+		}
 		return nil, fmt.Errorf("browser: start %s: %w", filepath.Base(opts.Binary), err)
+	}
+	if copied != nil {
+		_ = stderr.Close() // parent end; Chromium still holds the inherited fd
 	}
 	b := &Browser{proc: proc, pid: proc.Pid, plat: platform.Current(), opts: opts, env: env, exited: make(chan struct{})}
 	go func() {
@@ -86,7 +109,20 @@ func Launch(ctx context.Context, opts LaunchOptions) (*Browser, error) {
 	}
 	if err := b.cdp.Call(hctx, "", "Browser.getVersion", nil, &ver); err != nil {
 		_ = b.Kill()
-		return nil, fmt.Errorf("browser: devtools handshake: %w", err)
+		msg := fmt.Sprintf("browser: devtools handshake: %v", err)
+		if copied != nil {
+			select {
+			case <-copied:
+			case <-time.After(500 * time.Millisecond):
+			}
+			if extra := strings.TrimSpace(captured.String()); extra != "" {
+				if len(extra) > 800 {
+					extra = extra[:800] + "…"
+				}
+				msg += "; chromium stderr: " + extra
+			}
+		}
+		return nil, errors.New(msg)
 	}
 	if err := b.enforceEnvironment(hctx); err != nil {
 		_ = b.Kill()
