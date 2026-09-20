@@ -43,7 +43,8 @@ jobs:
             Open Terminal, paste this, press Enter:
 
             ```
-            cd ~
+            mkdir -p ~/tab-router-app
+            cd ~/tab-router-app
             curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-apple-silicon
             chmod +x tab-router
             xattr -d com.apple.quarantine tab-router
@@ -58,7 +59,8 @@ jobs:
             Open PowerShell, paste this:
 
             ```
-            cd $HOME
+            New-Item -ItemType Directory -Force -Path $HOME\tab-router-app | Out-Null
+            cd $HOME\tab-router-app
             Invoke-WebRequest -Uri https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-windows.exe -OutFile tab-router.exe
             .\tab-router.exe provider login
             .\tab-router.exe --identities 2 --url https://example.com

@@ -30,7 +30,8 @@ Open **Terminal** (Command-Space, type `Terminal`, press Enter). Paste the
 whole block, then press Enter:
 
 ```sh
-cd ~
+mkdir -p ~/tab-router-app
+cd ~/tab-router-app
 curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-apple-silicon
 chmod +x tab-router
 xattr -d com.apple.quarantine tab-router
@@ -42,6 +43,7 @@ When it asks for an account number, paste your Mullvad number and press Enter.
 Then paste:
 
 ```sh
+cd ~/tab-router-app
 ./tab-router --identities 2 --url https://example.com
 ```
 
@@ -49,13 +51,14 @@ The first run downloads Chromium. Two browser windows should open. You never
 create a route file.
 
 If macOS says the app is damaged or cannot be opened, run
-`xattr -d com.apple.quarantine tab-router` again from the same folder, then
-retry `./tab-router provider login`.
+`xattr -d com.apple.quarantine ~/tab-router-app/tab-router`, then retry
+`./tab-router provider login` from `~/tab-router-app`.
 
 ### Mac (Intel)
 
 ```sh
-cd ~
+mkdir -p ~/tab-router-app
+cd ~/tab-router-app
 curl -L -o tab-router https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-mac-intel
 chmod +x tab-router
 xattr -d com.apple.quarantine tab-router
@@ -68,7 +71,8 @@ xattr -d com.apple.quarantine tab-router
 Open **PowerShell**. Paste:
 
 ```powershell
-cd $HOME
+New-Item -ItemType Directory -Force -Path $HOME\tab-router-app | Out-Null
+cd $HOME\tab-router-app
 Invoke-WebRequest -Uri https://github.com/Nareik33L/tab-router/releases/latest/download/tab-router-windows.exe -OutFile tab-router.exe
 .\tab-router.exe provider login
 .\tab-router.exe --identities 2 --url https://example.com
@@ -78,14 +82,16 @@ If Windows SmartScreen appears, choose **More info** → **Run anyway**.
 
 ### After it is running
 
-From a **second** Terminal / PowerShell window, in the same folder:
+From a **second** Terminal / PowerShell window:
 
 ```sh
+cd ~/tab-router-app
 ./tab-router --status
 ./tab-router --stop
 ```
 
-On Windows use `.\tab-router.exe` instead of `./tab-router`.
+On Windows, first `cd $HOME\tab-router-app`, then use `.\tab-router.exe`
+instead of `./tab-router`.
 
 `--fresh` makes a new browser identity set. It does not delete your Mullvad
 login.
@@ -126,7 +132,7 @@ Read [`docs/SCOPE.md`](docs/SCOPE.md) for the full requirements and
 [`docs/adr/0003-automatic-route-provisioning.md`](docs/adr/0003-automatic-route-provisioning.md)
 for why Mullvad + userspace WireGuard is the first provider.
 
-Extra commands (same folder as the program):
+Extra commands (from `~/tab-router-app`, or `$HOME\tab-router-app` on Windows):
 
 ```sh
 ./tab-router --diagnostics
