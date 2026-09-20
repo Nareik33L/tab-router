@@ -180,6 +180,45 @@ func TestRouteDefRedaction(t *testing.T) {
 	if r := d.Redacted(); strings.Contains(r, "s3cret") || !strings.Contains(r, "***") {
 		t.Fatalf("redaction failed: %s", r)
 	}
+	wg := provider.RouteDef{ID: "w", Type: "wireguard", Address: "203.0.113.10:51820", PrivateKey: "supersecretkey"}
+	if r := wg.Redacted(); strings.Contains(r, "supersecretkey") || !strings.Contains(r, "wireguard://") {
+		t.Fatalf("wireguard redaction failed: %s", r)
+	}
+}
+
+func TestGateSetRouteSwapsUpstream(t *testing.T) {
+	target := echoTCP(t)
+	mk := func(id string) provider.Route {
+		t.Helper()
+		up := &socks5.Server{Dial: func(ctx context.Context, hp string) (net.Conn, error) { return net.Dial("tcp", hp) }}
+		addr, err := up.Listen("127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = up.Close() })
+		r, err := provider.New(provider.RouteDef{ID: id, Type: "socks5", Address: addr.String()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := r.Start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	first := mk("a")
+	gate := provider.NewGate(first)
+	gateAddr, err := gate.Listen()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gate.Shutdown()
+	gate.Close()
+	second := mk("b")
+	gate.SetRoute(second)
+	_ = first.Stop()
+	gate.Open()
+	client := &socks5.Dialer{ProxyAddr: gateAddr}
+	roundTrip(t, client.DialContext, target)
 }
 
 func TestParseEchoBody(t *testing.T) {

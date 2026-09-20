@@ -1,6 +1,6 @@
-# Tab Router — Technical Scope v0.2
+# Tab Router — Technical Scope v0.3
 
-Supersedes v0.1. Changes from v0.1 are marked **[v0.2]** and are summarised in
+Supersedes v0.2. Changes from v0.2 are marked **[v0.3]** and are summarised in
 Appendix A.
 
 ---
@@ -23,14 +23,18 @@ Each identity has:
 On startup the user specifies (1) the number of identities and (2) an optional
 URL to open in every identity.
 
-**[v0.2] Route sourcing.** The application does not create public IP
-addresses. Each identity's route is backed by an *upstream* the user supplies
-once in `routes.toml` (a SOCKS5 proxy, an HTTP CONNECT proxy, or — stretch — a
-WireGuard peer). "No manual networking configuration" means: the application
-never changes host routing tables, adapters, DNS settings or firewall rules,
-never requires administrator rights for normal use, and the user never
-configures a browser tab by hand. Supplying upstream endpoints is the only
-network input required.
+**[v0.3] Route sourcing.** The application does not create public IP
+addresses. Tab Router owns the route lifecycle: it provisions one independent
+egress path per identity, verifies connectivity, binds the identity to that
+route, keeps the route up while the session runs, and tears it down on exit.
+The first provider is Mullvad via a userspace WireGuard tunnel (no
+administrator rights, no host routing changes). One-time setup is
+`tab-router provider login`. Chromium never sees the provider; it only sees
+its local Gate. A leftover `routes.toml` remains a power-user override.
+"No manual networking configuration" means: the application never changes
+host routing tables, adapters, DNS settings or firewall rules, never requires
+administrator rights for normal use, and the user never configures a browser
+tab, proxy host, or SOCKS credential by hand.
 
 **[v0.2] Two identities first.** The initial implementation targets exactly
 two identities and two routes. The identity count is hard-capped at 2 until
@@ -192,10 +196,10 @@ Route providers:
 
 | Provider | v0.1 status | DNS resolution happens at |
 |---|---|---|
-| SOCKS5 upstream (with optional user/pass auth handled by the gate) | required | upstream proxy |
-| HTTP CONNECT upstream (with optional Basic auth handled by the gate) | required | upstream proxy |
-| WireGuard, userspace netstack (no OS interface, no admin) | stretch | route-configured DNS server, queried through the tunnel |
-| Future providers (Tor, SSH, commercial VPN APIs) | out of scope | — |
+| Mullvad via userspace WireGuard (wireguard-go + netstack, no OS interface, no admin) | **required (automatic)** | route-configured DNS server, queried through the tunnel |
+| SOCKS5 upstream (with optional user/pass auth handled by the gate) | power-user / tests | upstream proxy |
+| HTTP CONNECT upstream (with optional Basic auth handled by the gate) | power-user / tests | upstream proxy |
+| Future providers (Tor, SSH, other commercial VPN APIs) | out of scope | — |
 
 `RoutingProvider` interface (illustrative):
 
@@ -284,8 +288,9 @@ tab-router --fresh --identities 2
 
 creates a new timestamped set and repoints `current`; the old set is retained
 (never deleted or overwritten silently). Identity → route slot pinning is
-stored in `identity.json`, so identity 001 always uses route slot 1 and
-therefore the same upstream across restarts if `routes.toml` is unchanged.
+stored in `identity.json`, so identity 001 always uses route slot 1. The
+route itself is provisioned fresh each start; the identity's browser state
+is what persists.
 
 A lock file per set prevents two controllers from opening the same identities.
 
@@ -320,18 +325,18 @@ Controller (daemon for the session)
 ## 15. Startup sequence
 
 ```
- 1. Parse CLI, load config.toml, load routes.toml (CLI overrides file)
- 2. Determine identity count (≤ cap, ≤ routes)
+ 1. Parse CLI, load config.toml (CLI overrides file)
+ 2. Determine identity count (≤ cap)
  3. Validate startup URL
  4. Create/load identity set; acquire lock
- 5. Create routes and gates (gates start CLOSED)
- 6. Start routes
- 7. Controller-side route verification (V1): public IP per route
+ 5. Resolve provisioner (provider.toml, else routes.toml, else error with login hint)
+ 6. Provision N independent routes and create gates (gates start CLOSED)
+ 7. Start routes; controller-side verification (V1): public IP per route
  8. Launch one Chromium per identity, pinned to its gate; open gates
  9. Browser-side verification (V2–V8) per identity, cross-identity checks
-10. On any failure: kill all Chromium, print FAILED, exit 2
+10. On any failure: kill all Chromium, tear routes down, print FAILED, exit 2
 11. Open startup URL in each identity (V9)
-12. Print READY summary; start HealthMonitor; serve IPC
+12. Print READY summary; start HealthMonitor (fail-closed re-establish); serve IPC
 ```
 
 If a route cannot be established, its identity is not launched.
@@ -358,10 +363,10 @@ controller. No unauthenticated DevTools TCP port.
 
 ## 17. Security
 
-* No telemetry, accounts, cloud dependency, or transmission of browsing data.
-* Route credentials live only in `routes.toml` (0600 / owner-only ACL) or in
-  environment variables referenced from it; they are redacted from all logs
-  and status output (`socks5://user:***@host:port`).
+* No telemetry, Tab Router accounts, or transmission of browsing data.
+* Provider credentials live only in `provider.toml` (0600 / owner-only ACL).
+  Optional `routes.toml` is the same for bring-your-own upstreams. Both are
+  redacted from all logs and status output.
 * The startup URL is not placed on any process command line.
 * Chromium runs with its default sandbox; never pass `--no-sandbox`.
 * One outbound request from the *controller* over the host connection is
@@ -378,6 +383,7 @@ tab-router                                   interactive if TTY, else defaults
 tab-router --identities 2
 tab-router --identities 2 --url https://example.com
 tab-router --fresh --identities 2 --url https://example.com
+tab-router provider login|status|logout
 tab-router --status
 tab-router --stop
 tab-router --diagnostics [--full]
@@ -413,7 +419,12 @@ compare_host_ip = true
 probe_interval_seconds = 10
 ```
 
-`routes.toml` (secret, owner-only permissions, never committed):
+`provider.toml` (secret, owner-only permissions, never committed) is written
+by `tab-router provider login`. Routes are not persisted across sessions;
+identities are.
+
+`routes.toml` is an optional power-user override when no provider is
+configured:
 
 ```toml
 [[route]]
@@ -612,7 +623,7 @@ See `docs/ENGINEERING_PLAN.md` for exit criteria. Summary:
 | M7/M8 | Windows and macOS platform providers; full suite on each | 2 |
 | M9 | Lift cap; 5 and 10 identities; measure | 5, 10 |
 | M10 | Packaging: Windows installer, macOS .dmg, reproducible builds | — |
-| S1 | Stretch: WireGuard userspace provider | — |
+| S1 | Automatic route provisioning (userspace WireGuard + Mullvad) | 2 |
 | S2 | Stretch: OS-level per-process firewall as second fail-closed layer | — |
 
 ---
@@ -623,17 +634,16 @@ Fancy GUI; user accounts; cloud backend; analytics; subscriptions; mobile;
 extension for existing Chrome; fingerprint spoofing; anti-detection; CAPTCHA
 solving; automated account creation; scraping; platform-specific evasion.
 
-**[v0.2] also:** single-window multi-tab presentation; tab reassignment
-between identities; sharing a route between identities; route providers other
-than SOCKS5/HTTP (WireGuard is stretch); Chromium source modifications;
-Linux as a supported platform; running without verification.
+**[v0.3] also:** single-window multi-tab presentation; tab reassignment
+between identities; sharing a route between identities; Chromium source
+modifications; Linux as a supported platform; running without verification.
 
 ---
 
 ## 27. Definition of done
 
 v0.1 is done when a clean Windows 11 machine and a clean macOS 13+ machine,
-given a `routes.toml` with two working upstreams, can each run
+after `tab-router provider login`, can each run
 
 ```
 tab-router --identities 2 --url https://example.com
@@ -691,3 +701,15 @@ WINDOW → IDENTITY → CHROMIUM PROCESS → GATE → ROUTE → PUBLIC EGRESS
 12. Test suite extended with T-H (no direct connections), T-I (failure
     reporting), T-J (protocol coverage), T-K (investigations).
 13. Linux declared dev/CI-only; WireGuard and OS firewall declared stretch.
+
+## Appendix B — Summary of v0.3 changes
+
+1. Automatic route provisioning: Identity N → Route N → Egress N. First
+   milestone remains two identities / two routes.
+2. First provider: Mullvad via userspace WireGuard. One-time
+   `tab-router provider login`. No `routes.toml` for normal startup.
+3. Routes are session-scoped; identities persist. `--fresh` does not
+   destroy provider configuration.
+4. Fail-closed re-establish of a failed route onto a different path;
+   never a silent fallback to the host or another identity.
+5. Verification (V1–V9) remains mandatory after automatic creation.

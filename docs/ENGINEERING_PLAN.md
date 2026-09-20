@@ -18,6 +18,7 @@ the scope wins; open an ADR in `docs/adr/` if you need to deviate.
 | M8 pinned Chromium, fetch script, docs | done | `browser/chromium/pin.json` (Chrome for Testing 153.0.8010.52, SHA-256 per platform), `scripts/fetch-chromium`, `docs/chromium-flags.md`, `docs/leak-testing.md` |
 | M9 lift the 2-identity cap | not started (by design) | `config.MaxIdentities = 2` |
 | Add-on: per-identity pinned environment | done | ADR-0002, `identity.Environment`, `TestEnvironmentApplied`, `TestPersistenceAndFresh` |
+| Add-on: automatic route provisioning | done | ADR-0003, `routing/manager`, `routing/wireguard`, `tab-router provider login` |
 
 Remaining before a v0.1 tag: the manual `docs/leak-testing.md` pass with a
 packet capture on real Windows/macOS hardware, and code signing. CI now
@@ -44,8 +45,9 @@ Four rules that override everything else:
    local gate owned by the controller. If the route is down, the gate refuses.
    There is no code path that yields DIRECT.
 4. **No manual networking for the user.** The app never touches host routes,
-   adapters, DNS or firewall, and never needs admin. The user supplies upstream
-   route endpoints in `routes.toml` once; that is the only network input.
+   adapters, DNS or firewall, and never needs admin. Automatic provisioning
+   (Mullvad + userspace WireGuard after one-time `provider login`) is the
+   normal path. `routes.toml` is an optional override.
 
 Do not spend time on: GUI polish, single-window tabs, fingerprinting,
 Chromium forks, cloud anything. Optimise for proving isolation.
@@ -66,10 +68,10 @@ The gate dials upstream via the route's `RoutingProvider`. Gate states:
 `CLOSED` (refuse all) / `OPEN` (forward). Credentials live in the gate, never in
 Chromium. On route `DOWN` the gate goes `CLOSED` and tears down live tunnels.
 
-**D3 — Route providers for v0.1:** upstream SOCKS5 (user/pass handled by the
-gate) and upstream HTTP CONNECT (Basic auth handled by the gate). WireGuard via
-userspace netstack (no OS interface, no admin) is stretch S1. Routes are never
-shared between identities.
+**D3 — Route providers for v0.1:** automatic Mullvad userspace WireGuard
+(one independent tunnel per identity, no OS interface, no admin). Upstream
+SOCKS5 and HTTP CONNECT remain as a power-user `routes.toml` override and
+as the in-process test infra. Routes are never shared between identities.
 
 **D4 — Language: Go (recommended).** Single static binaries for
 win/amd64, darwin/arm64, darwin/amd64; mature SOCKS5/HTTP proxy libraries;
@@ -142,6 +144,7 @@ README.md                     startup commands only
 
 ```
 tab-router [--identities N] [--url URL] [--fresh] [--config P] [--routes P] [--data-dir P]
+tab-router provider login|status|logout
 tab-router --status | --stop | --diagnostics [--full] | --version
 ```
 
@@ -149,8 +152,9 @@ Exit codes: 0 ok · 1 usage/config · 2 verification failed (shut down safely) �
 3 route establishment failed · 4 browser launch failed · 5 already running.
 
 Interactive mode only when no flags and stdin is a TTY: prompt identity count
-(default 2) and startup URL. If `routes.toml` is missing, print its path and a
-pointer to `routes.example.toml`, exit 1. Never prompt for credentials.
+(default 2) and startup URL. If neither `provider.toml` nor `routes.toml` is
+present, print the `tab-router provider login` hint and exit 1. Never prompt
+for SOCKS/HTTP credentials. `--fresh` does not delete provider configuration.
 
 ### 3.2 IdentityManager
 
@@ -394,7 +398,9 @@ Do whichever is not your primary dev OS second. Per platform:
   artifacts and pass the Definition of Done command.
 
 ### Stretch
-- **S1 WireGuard userspace provider** (`wireguard-go` netstack): route-owned
+- **S1 WireGuard userspace provider** (`wireguard-go` netstack): **done** as
+  the automatic route implementation (ADR-0003). Remaining stretch is
+  additional commercial providers behind the same `Provisioner` interface.
   DNS through the tunnel; no OS interface; same Route interface; T-A/T-B/T-C
   pass with two WireGuard peers.
 - **S2 OS-level per-process egress rules** (Windows WFP; macOS Network

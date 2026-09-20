@@ -23,16 +23,17 @@ Download the binary for your platform from
 | `tab-router-vX.Y.Z-darwin-amd64` | macOS Intel |
 
 On first run the binary downloads the pinned Chromium into the data
-directory. Create `routes.toml` as below. Unsigned builds: on macOS run
-`xattr -d com.apple.quarantine tab-router`; on Windows, allow the SmartScreen
-prompt.
+directory. One-time network setup is `tab-router provider login` (a Mullvad
+account, because two identities need two real public egress IPs). Unsigned
+builds: on macOS run `xattr -d com.apple.quarantine tab-router`; on Windows,
+allow the SmartScreen prompt.
 
 ## How it works
 
 ```
  tab-router (controller)
- ├─ Identity 001 ── Chromium #1 ──proxy──▶ Gate 001 (127.0.0.1:p1) ──▶ Route 001 ──▶ upstream A ──▶ internet as IP-A
- └─ Identity 002 ── Chromium #2 ──proxy──▶ Gate 002 (127.0.0.1:p2) ──▶ Route 002 ──▶ upstream B ──▶ internet as IP-B
+ ├─ Identity 001 ── Chromium #1 ──proxy──▶ Gate 001 ──▶ Route 001 (userspace WG) ──▶ egress IP-A
+ └─ Identity 002 ── Chromium #2 ──proxy──▶ Gate 002 ──▶ Route 002 (userspace WG) ──▶ egress IP-B
 ```
 
 * One Chromium process tree per identity, launched with a hardened flag set
@@ -40,57 +41,45 @@ prompt.
 * The gate is a local SOCKS5 server that forwards only while its route is
   verified `READY`. When the route fails the gate refuses every request, so
   the browser shows a connection error instead of using the host network.
-  Chromium never sees upstream credentials.
-* DNS is delegated to the upstream (`socks5h` semantics); the browser never
-  resolves hostnames locally.
+  Chromium never sees WireGuard, relays, or credentials.
+* The route manager provisions one independent userspace WireGuard tunnel
+  per identity (no administrator rights, no host routing changes), verifies
+  connectivity and egress, and tears the tunnels down on exit.
+* DNS is delegated through the route; the browser never resolves hostnames
+  locally.
 * At startup nine checks (V1–V9) prove the isolation before any identity is
   reported ready. If any check fails, every browser is terminated and the
   terminal says so.
 
-Read [`docs/SCOPE.md`](docs/SCOPE.md) for the full requirements.
+Read [`docs/SCOPE.md`](docs/SCOPE.md) for the full requirements and
+[`docs/adr/0003-automatic-route-provisioning.md`](docs/adr/0003-automatic-route-provisioning.md)
+for why Mullvad + userspace WireGuard is the first provider.
 
 ## Quick start (from source)
 
-Requirements: Go 1.22+, and two upstream SOCKS5 or HTTP proxies you control
-(one per identity) that egress from different public IPs.
+Requirements: Go 1.22+ and a [Mullvad](https://mullvad.net) account.
 
 ```sh
 git clone https://github.com/Nareik33L/tab-router && cd tab-router
 go run ./scripts/fetch-chromium          # downloads + verifies the pinned Chromium
 go build -o bin/tab-router ./cmd/tab-router
-```
 
-Create the route file with owner-only permissions:
-
-* macOS: `~/Library/Application Support/tab-router/routes.toml` (`chmod 600`)
-* Windows: `%LOCALAPPDATA%\tab-router\routes.toml`
-
-```toml
-[[route]]
-id = "route-001"
-type = "socks5"                       # socks5 | http
-address = "proxy-a.example.net:1080"
-username = "alice"
-password_env = "TR_ROUTE_001_PASSWORD"   # or password = "..."
-
-[[route]]
-id = "route-002"
-type = "http"
-address = "proxy-b.example.net:3128"
-```
-
-Run:
-
-```sh
+bin/tab-router provider login            # one-time; paste the account number
 bin/tab-router --identities 2 --url https://example.com
 ```
+
+Or, with a TTY and no flags, `bin/tab-router` prompts for the identity count
+and URL. `routes.toml` is not required.
 
 ```
 TAB ROUTER v0.1.0
 Identities: 2   Startup URL: https://example.com
 Using identity set set-2026-09-20T14-18-36Z
+Creating Identity 001...
+Creating Identity 002...
 Browser: Chromium 153.0.8010.52 (pinned)
-Starting 2 identities...
+Network provider: mullvad
+Provisioning network routes...
 Identity 001 → Route 001: CONNECTED ✓
 Identity 002 → Route 002: CONNECTED ✓
 Verifying network isolation...
@@ -119,9 +108,15 @@ Other commands, from a second terminal:
 bin/tab-router --status            # live state, health, environment per identity
 bin/tab-router --diagnostics       # re-run the isolation checks and print a report
 bin/tab-router --stop
-bin/tab-router --fresh             # start a brand-new identity set (old one is kept)
-bin/tab-router route-check         # dev: public IP of each configured route
+bin/tab-router --fresh             # new browser identity set; provider config is kept
+bin/tab-router provider status
+bin/tab-router provider logout     # removes local provider.toml only
+bin/tab-router route-check         # dev: public IP of each provisioned route
 ```
+
+Power users can still drop a `routes.toml` of SOCKS5/HTTP upstreams in the
+data directory; it is used only when `provider.toml` is absent. See
+[`docs/routes.example.toml`](docs/routes.example.toml).
 
 Exit codes: `0` ok · `1` usage/config · `2` verification failed · `3` route
 failed · `4` browser failed · `5` already running.
@@ -162,7 +157,8 @@ legitimately exposes are used, and the point is stability, not disguise.
 
 ## Configuration
 
-`config.toml` lives next to `routes.toml`. All keys are optional:
+`config.toml` lives in the data directory next to `provider.toml`. All keys
+are optional:
 
 ```toml
 identities = 2
@@ -213,8 +209,10 @@ controller/verify     checks V1–V9
 controller/health     runtime probes, fail-closed enforcement, leak alarms
 controller/browser    Chromium finder, launcher, CDP-over-pipe client, prefs
 controller/identity   identity sets, identity.json, environments
-controller/config     config.toml / routes.toml
+controller/config     config.toml / optional routes.toml
+routing/manager       Provisioner (Mullvad, static fallback)
 routing/provider      Route, RoutingProvider, Gate
+routing/wireguard     userspace WireGuard (wireguard-go + netstack)
 routing/socks5        SOCKS5 client and CONNECT-only server
 routing/httpproxy     HTTP CONNECT client and server
 routing/platform      OS-specific: process tree, endpoint enumeration, IPC, file ACLs
@@ -227,8 +225,9 @@ docs/                 scope, engineering plan, ADRs, flag rationale, leak testin
 
 ## Security notes
 
-* Route credentials live only in `routes.toml` (refused if readable by other
-  users) or environment variables, and never reach Chromium or the terminal.
+* Provider credentials live only in `provider.toml` (refused if readable by
+  other users) and never reach Chromium or the terminal. Optional
+  `routes.toml` is the same for bring-your-own upstreams.
 * The DevTools channel is a pipe, never a TCP port.
 * The control channel is a Unix socket / named pipe with a per-session
   random token.

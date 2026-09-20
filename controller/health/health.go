@@ -7,7 +7,6 @@ package health
 import (
 	"context"
 	"fmt"
-	"net"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +58,11 @@ type Options struct {
 	EchoURL         string
 	Timeout         time.Duration
 	OnEvent         func(Event)
+	// Reestablish, if set, is invoked after a route has been DOWN for
+	// ReestablishAfter so the manager can build a replacement path. The
+	// gate stays closed until the replacement's egress is verified.
+	Reestablish      func(ctx context.Context, s *verify.Subject) error
+	ReestablishAfter time.Duration
 }
 
 // Monitor supervises a set of subjects.
@@ -81,6 +85,7 @@ type State struct {
 	Leaks       []string
 	Down        bool
 	DownSince   time.Time
+	reest       bool
 }
 
 // New creates a monitor; call Start to run it.
@@ -93,6 +98,9 @@ func New(subjects []*verify.Subject, opts Options) *Monitor {
 	}
 	if opts.Timeout <= 0 {
 		opts.Timeout = 10 * time.Second
+	}
+	if opts.ReestablishAfter <= 0 {
+		opts.ReestablishAfter = 20 * time.Second
 	}
 	m := &Monitor{opts: opts, subjects: subjects, state: map[*verify.Subject]*State{}}
 	for _, s := range subjects {
@@ -184,12 +192,8 @@ func (m *Monitor) probe(ctx context.Context, s *verify.Subject) {
 	pctx, cancel := context.WithTimeout(ctx, m.opts.Timeout)
 	defer cancel()
 
-	// Cheap reachability probe of the upstream itself.
-	d := net.Dialer{Timeout: m.opts.Timeout}
-	c, err := d.DialContext(pctx, "tcp", s.Route.Def().Address)
-	if c != nil {
-		c.Close()
-	}
+	// Cheap reachability probe of the transport itself.
+	err := s.Route.Reachable(pctx)
 	now := time.Now()
 	m.mu.Lock()
 	st.LastProbe = now
@@ -198,6 +202,7 @@ func (m *Monitor) probe(ctx context.Context, s *verify.Subject) {
 
 	if err != nil {
 		m.markDown(s, st, "upstream unreachable: "+err.Error())
+		m.maybeReestablish(ctx, s, st)
 		return
 	}
 
@@ -215,6 +220,7 @@ func (m *Monitor) probe(ctx context.Context, s *verify.Subject) {
 	m.mu.Unlock()
 	if err != nil {
 		m.markDown(s, st, "egress probe failed: "+err.Error())
+		m.maybeReestablish(ctx, s, st)
 		return
 	}
 	if s.RouteIP != nil && !ip.Equal(s.RouteIP) {
@@ -248,6 +254,26 @@ func (m *Monitor) markDown(s *verify.Subject, st *State, reason string) {
 	s.Gate.Close()
 	if first {
 		m.emit(Event{At: time.Now(), Subject: s, Kind: RouteDown, Detail: reason + "; traffic blocked"})
+	}
+}
+
+func (m *Monitor) maybeReestablish(ctx context.Context, s *verify.Subject, st *State) {
+	if m.opts.Reestablish == nil {
+		return
+	}
+	m.mu.Lock()
+	if !st.Down || st.reest || time.Since(st.DownSince) < m.opts.ReestablishAfter {
+		m.mu.Unlock()
+		return
+	}
+	st.reest = true
+	m.mu.Unlock()
+	err := m.opts.Reestablish(ctx, s)
+	m.mu.Lock()
+	st.reest = false
+	m.mu.Unlock()
+	if err != nil {
+		m.emit(Event{At: time.Now(), Subject: s, Kind: RouteDown, Detail: "re-provision failed: " + err.Error()})
 	}
 }
 
