@@ -19,27 +19,33 @@ import (
 )
 
 const (
-	bootstrapTimeout  = 3 * time.Minute
-	cookieLen         = 32
-	authAttempts      = 8
-	cookieWaitTimeout = 10 * time.Second
+	bootstrapTimeout   = 3 * time.Minute
+	cookieLen          = 32
+	authAttempts       = 8
+	cookieWaitTimeout  = 10 * time.Second
+	sessionCircuitLife = 30 * 24 * 60 * 60 // seconds; keep the first circuit for the run
+	pinAttempts        = 8
+	pinRetry           = 250 * time.Millisecond
 )
 
 var socksListenerRe = regexp.MustCompile(`(?:127\.0\.0\.1|\[::1\]):(\d+)`)
 
 // Daemon is one local tor process with a SOCKS port and a control port.
+// One process is started per identity so ExitNodes can be pinned independently
+// and the session public IP cannot rotate.
 type Daemon struct {
 	Binary    string
 	DataDir   string
 	Log       io.Writer
 	SocksAddr string
 
-	mu      sync.Mutex
-	cmd     *exec.Cmd
-	ctrl    net.Conn
-	ctrlR   *bufio.Reader
-	exited  chan error
-	stopped bool
+	mu         sync.Mutex
+	cmd        *exec.Cmd
+	ctrl       net.Conn
+	ctrlR      *bufio.Reader
+	exited     chan error
+	stopped    bool
+	pinnedExit string
 }
 
 // Start launches tor and waits until circuits can be built.
@@ -105,7 +111,12 @@ func (d *Daemon) Start(ctx context.Context) error {
 func (d *Daemon) torrc(session string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "DataDirectory %s\n", quotePath(session))
-	fmt.Fprintf(&b, "SocksPort auto IsolateSOCKSAuth IsolateDestAddr\n")
+	// IsolateSOCKSAuth keeps this identity on its own circuit. IsolateDestAddr
+	// is intentionally omitted: a health check to ipify must reuse the same
+	// exit as browsing, or the session IP looks like it rotated.
+	fmt.Fprintf(&b, "SocksPort auto IsolateSOCKSAuth KeepAliveIsolateSOCKSAuth\n")
+	fmt.Fprintf(&b, "MaxCircuitDirtiness %d\n", sessionCircuitLife)
+	fmt.Fprintf(&b, "CircuitIdleTimeout %d\n", sessionCircuitLife)
 	fmt.Fprintf(&b, "CookieAuthentication 1\n")
 	fmt.Fprintf(&b, "CookieAuthFile %s\n", quotePath(filepath.Join(session, "control_auth_cookie")))
 	fmt.Fprintf(&b, "AvoidDiskWrites 1\n")
@@ -265,8 +276,8 @@ func (d *Daemon) fail(session, format string, args ...any) error {
 	return fmt.Errorf("%s", msg)
 }
 
-// Newnym asks tor to use fresh circuits. Stream isolation still comes from
-// distinct SOCKS credentials per identity.
+// Newnym asks tor to use fresh circuits. Session IPs are pinned; callers
+// must not use this to recover a route or the public IP will rotate.
 func (d *Daemon) Newnym(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -274,6 +285,86 @@ func (d *Daemon) Newnym(ctx context.Context) error {
 		return fmt.Errorf("tor control connection is down")
 	}
 	_, err := controlCmd(d.ctrl, d.ctrlR, "SIGNAL NEWNYM")
+	return err
+}
+
+// PinnedExit is the hex fingerprint set by PinSOCKSUser, or empty.
+func (d *Daemon) PinnedExit() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.pinnedExit
+}
+
+// PinSOCKSUser looks up the BUILT circuit for socksUser and SETCONFs
+// ExitNodes to that fingerprint so later circuits keep the same egress IP.
+func (d *Daemon) PinSOCKSUser(ctx context.Context, socksUser string) error {
+	if socksUser == "" {
+		return fmt.Errorf("pin exit: empty SOCKS username")
+	}
+	var last error
+	for attempt := 0; attempt < pinAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		last = d.pinSOCKSUserOnce(socksUser)
+		if last == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pinRetry):
+		}
+	}
+	return last
+}
+
+func (d *Daemon) pinSOCKSUserOnce(socksUser string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.ctrl == nil {
+		return fmt.Errorf("tor control connection is down")
+	}
+	out, err := controlCmd(d.ctrl, d.ctrlR, "GETINFO circuit-status")
+	if err != nil {
+		return err
+	}
+	fp, err := parseCircuitExit(out, socksUser)
+	if err != nil {
+		return err
+	}
+	if _, err := controlCmd(d.ctrl, d.ctrlR, "SETCONF ExitNodes=$"+fp+" StrictNodes=1"); err != nil {
+		return err
+	}
+	d.pinnedExit = fp
+	fmt.Fprintf(d.Log, "pinned SOCKS user to exit $%s\n", fp)
+	return nil
+}
+
+// ReapplyPin restores a previously recorded ExitNodes pin (after a restart).
+func (d *Daemon) ReapplyPin() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.setPinnedLocked(d.pinnedExit)
+}
+
+// SetPinnedExit records and applies an exit fingerprint.
+func (d *Daemon) SetPinnedExit(fp string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.setPinnedLocked(fp)
+}
+
+func (d *Daemon) setPinnedLocked(fp string) error {
+	fp = strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(fp)), "$")
+	d.pinnedExit = fp
+	if fp == "" {
+		return nil
+	}
+	if d.ctrl == nil {
+		return fmt.Errorf("tor control connection is down")
+	}
+	_, err := controlCmd(d.ctrl, d.ctrlR, "SETCONF ExitNodes=$"+fp+" StrictNodes=1")
 	return err
 }
 
@@ -309,6 +400,29 @@ func controlCmd(conn net.Conn, r *bufio.Reader, cmd string) (string, error) {
 			return "", err
 		}
 		line = strings.TrimRight(line, "\r\n")
+		if strings.HasPrefix(line, "250+") {
+			// Data reply: 250+key=\nlines\n.\n250 OK
+			rest := strings.TrimPrefix(line, "250+")
+			if i := strings.IndexByte(rest, '='); i >= 0 {
+				if val := rest[i+1:]; val != "" {
+					b.WriteString(val)
+					b.WriteByte('\n')
+				}
+			}
+			for {
+				body, err := r.ReadString('\n')
+				if err != nil {
+					return "", err
+				}
+				body = strings.TrimRight(body, "\r\n")
+				if body == "." {
+					break
+				}
+				b.WriteString(body)
+				b.WriteByte('\n')
+			}
+			continue
+		}
 		if strings.HasPrefix(line, "250-") {
 			b.WriteString(strings.TrimPrefix(line, "250-"))
 			b.WriteByte('\n')
@@ -378,12 +492,56 @@ func authCookieMismatch(err error) bool {
 	return strings.Contains(s, "515") || strings.Contains(s, "cookie")
 }
 
+func parseSocksListeners(info string) []string {
+	return socksListenerRe.FindAllString(info, -1)
+}
+
 func parseSocksListener(info string) (string, error) {
-	m := socksListenerRe.FindString(info)
-	if m == "" {
+	addrs := parseSocksListeners(info)
+	if len(addrs) == 0 {
 		return "", fmt.Errorf("no 127.0.0.1 listener")
 	}
-	return m, nil
+	return addrs[0], nil
+}
+
+var (
+	hopFingerprintRe = regexp.MustCompile(`\$([0-9A-Fa-f]{40})`)
+	socksUserQuoted  = regexp.MustCompile(`SOCKS_USERNAME="([^"]*)"`)
+	socksUserBare    = regexp.MustCompile(`SOCKS_USERNAME=(\S+)`)
+)
+
+// parseCircuitExit returns the exit fingerprint (40 hex chars, no $) of a
+// BUILT circuit that carried socksUser.
+func parseCircuitExit(status, socksUser string) (string, error) {
+	if socksUser == "" {
+		return "", fmt.Errorf("no SOCKS username")
+	}
+	for _, line := range strings.Split(status, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.Contains(line, "BUILT") {
+			continue
+		}
+		user := circuitSOCKSUser(line)
+		if user != socksUser {
+			continue
+		}
+		hops := hopFingerprintRe.FindAllStringSubmatch(line, -1)
+		if len(hops) == 0 {
+			continue
+		}
+		return strings.ToUpper(hops[len(hops)-1][1]), nil
+	}
+	return "", fmt.Errorf("no BUILT circuit for SOCKS user")
+}
+
+func circuitSOCKSUser(line string) string {
+	if m := socksUserQuoted.FindStringSubmatch(line); len(m) == 2 {
+		return m[1]
+	}
+	if m := socksUserBare.FindStringSubmatch(line); len(m) == 2 {
+		return strings.Trim(m[1], `"`)
+	}
+	return ""
 }
 
 func readControlPortFile(path string) (string, error) {

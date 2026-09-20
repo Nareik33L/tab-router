@@ -59,8 +59,10 @@ type Options struct {
 	Timeout         time.Duration
 	OnEvent         func(Event)
 	// Reestablish, if set, is invoked after a route has been DOWN for
-	// ReestablishAfter so the manager can build a replacement path. The
-	// gate stays closed until the replacement's egress is verified.
+	// ReestablishAfter so the manager can restore the same session path.
+	// The gate stays closed until the original egress IP is seen again.
+	// It is not invoked when the public IP changes: that is a session
+	// failure, not a reason to mint a new address.
 	Reestablish      func(ctx context.Context, s *verify.Subject) error
 	ReestablishAfter time.Duration
 }
@@ -86,6 +88,9 @@ type State struct {
 	Down        bool
 	DownSince   time.Time
 	reest       bool
+	// egressAlerted is true after we have emitted EgressChanged for the
+	// current DOWN period so a sticky-IP failure is not logged every probe.
+	egressAlerted bool
 }
 
 // New creates a monitor; call Start to run it.
@@ -225,13 +230,20 @@ func (m *Monitor) probe(ctx context.Context, s *verify.Subject) {
 	}
 	if s.RouteIP != nil && !ip.Equal(s.RouteIP) {
 		m.markDown(s, st, fmt.Sprintf("egress changed %s -> %s", s.RouteIP, ip))
-		m.emit(Event{At: time.Now(), Subject: s, Kind: EgressChanged, Detail: fmt.Sprintf("%s -> %s", s.RouteIP, ip)})
+		m.mu.Lock()
+		first := !st.egressAlerted
+		st.egressAlerted = true
+		m.mu.Unlock()
+		if first {
+			m.emit(Event{At: time.Now(), Subject: s, Kind: EgressChanged, Detail: fmt.Sprintf("%s -> %s", s.RouteIP, ip)})
+		}
 		return
 	}
 	if wasDown {
 		m.mu.Lock()
 		st.Down = false
 		st.LastError = ""
+		st.egressAlerted = false
 		m.mu.Unlock()
 		s.Route.SetStatus(provider.StatusReady)
 		s.Gate.Open()

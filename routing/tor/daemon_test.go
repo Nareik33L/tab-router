@@ -1,8 +1,11 @@
 package tor
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +39,66 @@ func TestParseSocksListener(t *testing.T) {
 	}
 	if _, err := parseSocksListener("nothing"); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestParseSocksListeners(t *testing.T) {
+	got := parseSocksListeners(`net/listeners/socks="127.0.0.1:9050" "127.0.0.1:9051"`)
+	if len(got) != 2 || got[0] != "127.0.0.1:9050" || got[1] != "127.0.0.1:9051" {
+		t.Fatalf("got %#v", got)
+	}
+}
+
+func TestParseCircuitExit(t *testing.T) {
+	const (
+		a = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		b = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+		c = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+		d = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+		e = "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+		f = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+	)
+	status := strings.Join([]string{
+		"1 EXTENDED $" + a + " SOCKS_USERNAME=\"identity-001-abc\"",
+		"2 BUILT $" + a + "~g1,$" + b + "~g2,$" + c + "~exit BUILD_FLAGS=NEED_CAPACITY PURPOSE=GENERAL SOCKS_USERNAME=\"identity-001-abc\" SOCKS_PASSWORD=\"x\"",
+		"3 BUILT $" + d + "~g1,$" + e + "~g2,$" + f + "~exit PURPOSE=GENERAL SOCKS_USERNAME=\"identity-002-def\" SOCKS_PASSWORD=\"y\"",
+		"4 BUILT $" + a + " PURPOSE=HS_CLIENT_HSDIR",
+	}, "\n")
+	fp, err := parseCircuitExit(status, "identity-001-abc")
+	if err != nil || fp != c {
+		t.Fatalf("id 001: got %q %v", fp, err)
+	}
+	fp, err = parseCircuitExit(status, "identity-002-def")
+	if err != nil || fp != f {
+		t.Fatalf("id 002: got %q %v", fp, err)
+	}
+	if _, err := parseCircuitExit(status, "identity-009-zzz"); err == nil {
+		t.Fatal("expected missing-user error")
+	}
+}
+
+func TestControlCmdDataReply(t *testing.T) {
+	server, client := net.Pipe()
+	defer client.Close()
+	go func() {
+		defer server.Close()
+		r := bufio.NewReader(server)
+		if _, err := r.ReadString('\n'); err != nil {
+			return
+		}
+		_, _ = io.WriteString(server, "250+circuit-status=\r\n")
+		_, _ = io.WriteString(server, "2 BUILT $AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,$BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB SOCKS_USERNAME=\"identity-001-abc\"\r\n")
+		_, _ = io.WriteString(server, ".\r\n")
+		_, _ = io.WriteString(server, "250 OK\r\n")
+	}()
+	r := bufio.NewReader(client)
+	out, err := controlCmd(client, r, "GETINFO circuit-status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp, err := parseCircuitExit(out, "identity-001-abc")
+	if err != nil || fp != "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" {
+		t.Fatalf("got %q %v from %q", fp, err, out)
 	}
 }
 

@@ -17,11 +17,19 @@ type Provisioner interface {
 	// Provision returns n independent routes, Identity i → routes[i].
 	// Routes are created, not yet Started.
 	Provision(ctx context.Context, n int) ([]provider.Route, error)
-	// Reestablish replaces a failed route with a new independent path for
-	// the same slot (same identity). The old route should be Stopped by
-	// the caller after the swap.
+	// Reestablish restores the same session path for the slot. It must not
+	// mint a new public IP; the caller rejects any replacement whose egress
+	// differs from the IP verified at startup. The old route should be
+	// Stopped by the caller after the swap.
 	Reestablish(ctx context.Context, slot int, failed provider.Route) (provider.Route, error)
 	Close() error
+}
+
+// SessionExits pins an identity to the exit observed at V1 so the public
+// IP cannot rotate for the rest of the session. Optional: Static and
+// leftover Mullvad provisioners do not implement it.
+type SessionExits interface {
+	PinExit(ctx context.Context, slot int, socksUser string) error
 }
 
 // Static turns already-known RouteDefs (tests, leftover routes.toml) into

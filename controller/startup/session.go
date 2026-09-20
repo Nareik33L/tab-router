@@ -197,6 +197,11 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 			rep.Result(sub.Label(), routeLabel(sub), "FAILED ("+c.Detail+")", false)
 			return errors.New(c.Detail)
 		}
+		if pinner, ok := s.prov.(manager.SessionExits); ok {
+			if err := pinner.PinExit(ctx, sub.Identity.RouteSlot, sub.Route.Def().Username); err != nil {
+				rep.Line("%s: session exit not pinned (%v); an IP change will fail-closed", sub.Label(), err)
+			}
+		}
 		sub.Route.SetStatus(provider.StatusReady)
 		rep.Result(sub.Label(), routeLabel(sub), "CONNECTED", true)
 		return nil
@@ -545,15 +550,17 @@ func (s *Session) AllBrowsersExited() bool {
 	return true
 }
 
-// reestablish replaces a failed route with a new independent path for the
-// same identity. The gate stays closed until the health monitor re-verifies
-// egress; the replacement must not share another identity's public IP.
+// reestablish restores the same session path for the identity. The gate
+// stays closed until the health monitor sees the original egress IP again.
+// A replacement that comes back with a different public IP is rejected:
+// the session IP is fixed at V1 and must not rotate.
 func (s *Session) reestablish(ctx context.Context, sub *verify.Subject) error {
 	if s.prov == nil {
 		return fmt.Errorf("no provisioner")
 	}
 	sub.Gate.Close()
 	old := sub.Route
+	pinned := sub.RouteIP
 	next, err := s.prov.Reestablish(ctx, sub.Identity.RouteSlot, old)
 	if err != nil {
 		return err
@@ -568,6 +575,10 @@ func (s *Session) reestablish(ctx context.Context, sub *verify.Subject) error {
 		_ = next.Stop()
 		return err
 	}
+	if pinned != nil && !ip.Equal(pinned) {
+		_ = next.Stop()
+		return fmt.Errorf("session IP is pinned at %s; got %s", pinned, ip)
+	}
 	for _, other := range s.subjects {
 		if other == sub {
 			continue
@@ -579,10 +590,14 @@ func (s *Session) reestablish(ctx context.Context, sub *verify.Subject) error {
 	}
 	sub.Gate.SetRoute(next)
 	sub.Route = next
-	sub.RouteIP = ip
-	sub.BrowserIP = ip
+	if pinned == nil {
+		sub.RouteIP = ip
+		sub.BrowserIP = ip
+	}
 	next.SetStatus(provider.StatusVerifying)
-	_ = old.Stop()
+	if old != nil && old != next {
+		_ = old.Stop()
+	}
 	return nil
 }
 
@@ -595,7 +610,7 @@ func (s *Session) onHealthEvent(ev health.Event) {
 	case health.RouteRestored:
 		rep.Line("%s %s %s %s READY: %s", label, rep.Arrow(), routeLabel(ev.Subject), rep.Arrow(), ev.Detail)
 	case health.EgressChanged:
-		rep.Line("%s %s %s: EGRESS CHANGED %s (blocked until re-verified)", label, rep.Arrow(), routeLabel(ev.Subject), ev.Detail)
+		rep.Line("%s %s %s: EGRESS CHANGED %s (blocked; session IP is fixed)", label, rep.Arrow(), routeLabel(ev.Subject), ev.Detail)
 	case health.Leak:
 		rep.Line("ALARM %s: non-gate network endpoint observed: %s", label, ev.Detail)
 	case health.BrowserExited:

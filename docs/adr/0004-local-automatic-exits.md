@@ -30,10 +30,12 @@ a required step in the normal product flow.
 1. Normal startup provisions routes **locally and automatically**, with no
    account, no login, and no `routes.toml`.
 2. The first no-account exit mechanism is a **pinned Tor Expert Bundle**,
-   fetched the same way Chromium is fetched (URL + SHA-256), run as a
-   userspace daemon. Each identity gets a SOCKS5 path to that daemon with
-   distinct `IsolateSOCKSAuth` credentials, so circuits (and typically
-   exit IPs) differ. Chromium still talks only to its Gate.
+   fetched the same way Chromium is fetched (URL + SHA-256), run as one
+   userspace daemon **per identity**. After V1 the controller pins that
+   process to the observed exit fingerprint (`ExitNodes` + `StrictNodes`).
+   The public IP is therefore fixed for the session: it must not rotate, and
+   a health probe that sees a different address fail-closes that identity
+   instead of accepting a new IP. Chromium still talks only to its Gate.
 3. This is not hidden: the terminal reports `Network provider: tor`. Traffic
    leaves through the Tor network. Some sites block Tor; that is an honest
    property of a no-account public exit, not a bug to paper over.

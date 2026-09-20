@@ -128,8 +128,10 @@ Isolation verification: PASSED
   Chromium never sees Tor, relays, or credentials.
 * On start, Tab Router downloads a pinned Tor Expert Bundle if needed and
   provisions one independent circuit per identity (no administrator rights,
-  no host routing changes, no account). Traffic leaves through Tor; some
-  sites block it. That is the no-login way to get two different public IPs.
+  no host routing changes, no account). The public IP observed at startup
+  is pinned for the rest of that session and is not allowed to rotate.
+  Traffic leaves through Tor; some sites block it. That is the no-login
+  way to get two different public IPs.
 * DNS is delegated through the route; the browser never resolves hostnames
   locally.
 * At startup nine checks (V1–V9) prove the isolation before any identity is

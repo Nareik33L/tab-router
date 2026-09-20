@@ -271,7 +271,9 @@ Every `health.probe_interval_seconds` (default 10): TCP-level probe of each
 upstream; every 60 s a `PublicIP()` through the route. Failure ⇒ route `DOWN`
 ⇒ `Gate.Close()` ⇒ terminal line `Identity 001 → Route 001 → DOWN (traffic blocked)`.
 Recovery ⇒ re-run V1 ⇒ IP must equal the previously verified IP (or
-`compare_host_ip` rule still holds) ⇒ `READY` ⇒ `Gate.Open()`. Also samples
+`compare_host_ip` rule still holds) ⇒ `READY` ⇒ `Gate.Open()`. A changed
+public IP is a session failure: the original address is not replaced, the
+gate stays closed, and `EGRESS CHANGED` is printed once. Also samples
 V8 continuously; any non-gate endpoint is an alarm printed in red and
 recorded in `--status`.
 
