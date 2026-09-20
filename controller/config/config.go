@@ -49,8 +49,12 @@ type Config struct {
 
 // VerifyConfig controls startup verification.
 type VerifyConfig struct {
-	IPEchoURL     string `toml:"ip_echo_url"`
-	IPv6EchoURL   string `toml:"ipv6_echo_url"`
+	IPEchoURL   string `toml:"ip_echo_url"`
+	IPv6EchoURL string `toml:"ipv6_echo_url"`
+	// HostEchoURL is fetched once over the host connection to learn the
+	// host's own IP for the "≠ host" comparison. Defaults to ip_echo_url.
+	HostEchoURL   string `toml:"host_echo_url"`
+	HostEchoURLv6 string `toml:"host_echo_url_v6"`
 	CompareHostIP bool   `toml:"compare_host_ip"`
 	// StorageOrigin is the origin used for the cookie isolation check; it
 	// defaults to the echo URL's origin.
@@ -237,6 +241,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Verify.TimeoutSeconds <= 0 {
 		c.Verify.TimeoutSeconds = 20
+	}
+	if c.Verify.HostEchoURL == "" {
+		c.Verify.HostEchoURL = c.Verify.IPEchoURL
+	}
+	if c.Verify.HostEchoURLv6 == "" {
+		c.Verify.HostEchoURLv6 = c.Verify.IPv6EchoURL
 	}
 	if c.Health.ProbeIntervalSeconds <= 0 {
 		c.Health.ProbeIntervalSeconds = 10
