@@ -40,6 +40,23 @@ func TestTransientNavError(t *testing.T) {
 	}
 }
 
+func TestScrubEnvDropsDecodoCredentials(t *testing.T) {
+	out := scrubEnv([]string{
+		"HOME=/tmp",
+		"DECODO_USERNAME=account",
+		"DECODO_PASSWORD=secret",
+		"http_proxy=http://127.0.0.1:1",
+		"PATH=/usr/bin",
+	}, "Europe/London")
+	joined := strings.Join(out, "\n")
+	if strings.Contains(joined, "secret") || strings.Contains(joined, "DECODO_") || strings.Contains(joined, "http_proxy") {
+		t.Fatalf("credential or proxy leaked into browser env: %q", joined)
+	}
+	if !strings.Contains(joined, "HOME=/tmp") || !strings.Contains(joined, "TZ=Europe/London") {
+		t.Fatalf("kept env: %q", joined)
+	}
+}
+
 func TestHardeningFlagsAvoidKeychain(t *testing.T) {
 	joined := strings.Join(HardeningFlags("127.0.0.1:1"), " ")
 	for _, want := range []string{"--use-mock-keychain", "--password-store=basic", "OsCryptAsync", "AppBoundEncryption"} {

@@ -5,7 +5,6 @@ package manager
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/Nareik33L/tab-router/routing/provider"
@@ -87,9 +86,8 @@ type Input struct {
 	RoutesPath string
 	Explicit   []provider.RouteDef
 	N          int
-	// Provider is an explicit selection such as "decodo". Empty keeps the
-	// historical fallback order. An explicit provider that cannot be built
-	// is a fatal error: Open does not continue to Tor.
+	// Provider must be empty or "decodo". Any other name is rejected.
+	// Startup always uses Decodo unless Explicit route definitions are set.
 	Provider string
 	// Decodo, when set, is used as-is for Provider "decodo".
 	Decodo *Decodo
@@ -98,9 +96,7 @@ type Input struct {
 // Resolve picks a provisioner for this session.
 //
 //  1. explicitDefs (tests / --routes) win.
-//  2. Else a configured provider.toml (optional Mullvad leftover).
-//  3. Else an existing routes.toml (power-user override).
-//  4. Else the default local Tor provisioner (no account, no login).
+//  2. Otherwise Decodo. Missing credentials are an error. Tor is not selected.
 func Resolve(ctx context.Context, dataDir, routesPath string, explicitDefs []provider.RouteDef, n int) (Provisioner, string, error) {
 	return Open(ctx, Input{DataDir: dataDir, RoutesPath: routesPath, Explicit: explicitDefs, N: n})
 }
@@ -108,44 +104,23 @@ func Resolve(ctx context.Context, dataDir, routesPath string, explicitDefs []pro
 // Open picks a provisioner.
 //
 //  1. Explicit route definitions (tests / --routes) win.
-//  2. Else an explicit provider. "decodo" never falls through to Tor.
-//  3. Else a configured provider.toml (optional Mullvad leftover).
-//  4. Else an existing routes.toml (power-user override).
-//  5. Else the default local Tor provisioner (no account, no login).
+//  2. Otherwise Decodo. A missing username or password fails closed.
 func Open(ctx context.Context, in Input) (Provisioner, string, error) {
 	if len(in.Explicit) > 0 {
 		return Static{Defs: in.Explicit}, "static", nil
 	}
-	if p := strings.ToLower(strings.TrimSpace(in.Provider)); p != "" {
-		switch p {
-		case "decodo":
-			d := in.Decodo
-			if d == nil {
-				built, err := DecodoFromEnv(in.DataDir, DecodoConfig{})
-				if err != nil {
-					return nil, "", fmt.Errorf("decodo: %w", err)
-				}
-				d = built
-			}
-			return d, d.Name(), nil
-		default:
-			return nil, "", fmt.Errorf("unknown network provider %q", in.Provider)
-		}
+	if p := strings.ToLower(strings.TrimSpace(in.Provider)); p != "" && p != "decodo" {
+		return nil, "", fmt.Errorf("unknown network provider %q", in.Provider)
 	}
-	pp := Path(in.DataDir)
-	if _, err := os.Stat(pp); err == nil {
-		m, err := OpenMullvad(ctx, pp, in.N)
+	d := in.Decodo
+	if d == nil {
+		built, err := DecodoFromEnv(in.DataDir, DecodoConfig{})
 		if err != nil {
-			return nil, "", err
+			return nil, "", fmt.Errorf("decodo: %w", err)
 		}
-		return m, m.Name(), nil
+		d = built
 	}
-	if in.RoutesPath != "" {
-		if _, err := os.Stat(in.RoutesPath); err == nil {
-			return nil, "", ErrTryRoutes
-		}
-	}
-	return &Local{DataDir: in.DataDir}, "tor", nil
+	return d, d.Name(), nil
 }
 
 // ErrNoProvider is retained for callers that still special-case a missing

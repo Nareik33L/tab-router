@@ -27,14 +27,14 @@ URL to open in every identity.
 addresses and does not have a Tab Router account. Tab Router owns the route
 lifecycle: it provisions one independent egress path per identity, verifies
 connectivity, binds the identity to that route, keeps the route up while the
-session runs, and tears it down on exit. The default mechanism is a local
-Tor daemon (pinned Expert Bundle, no user account, no login). Chromium never
-sees Tor; it only sees its local Gate. A leftover `routes.toml` remains a
-power-user override. "No manual networking configuration" means: the
-application never changes host routing tables, adapters, DNS settings or
-firewall rules, never requires administrator rights for normal use, and the
-user never configures a browser tab, proxy host, SOCKS credential, or
-provider login by hand.
+session runs, and tears it down on exit. Startup uses Decodo residential
+sessions (ADR-0005). The user enters the Decodo proxy username and password
+at startup, or sets `DECODO_USERNAME` and `DECODO_PASSWORD`. Chromium never
+sees the gateway or the password; it only sees its local Gate. An explicit
+`--routes` file remains a test override. "No manual networking configuration"
+means: the application never changes host routing tables, adapters, DNS
+settings or firewall rules, and never requires administrator rights for
+normal use.
 
 **[v0.2] Two identities first.** The initial implementation targets exactly
 two identities and two routes. The identity count is hard-capped at 2 until
@@ -329,7 +329,7 @@ Controller (daemon for the session)
  2. Determine identity count (≤ cap)
  3. Validate startup URL
  4. Create/load identity set; acquire lock
- 5. Resolve provisioner (default local Tor; optional leftover provider.toml or routes.toml)
+ 5. Resolve provisioner (Decodo; credentials from the startup prompt or environment; explicit --routes wins)
  6. Provision N independent routes and create gates (gates start CLOSED)
  7. Start routes; controller-side verification (V1): public IP per route
  8. Launch one Chromium per identity, pinned to its gate; open gates

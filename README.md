@@ -1,8 +1,8 @@
 # Tab Router
 
 Two isolated Chromium browsers on one Mac or Windows PC. Each has its own
-cookies, window, and public IP. You do **not** need Go, a Tab Router account,
-a `routes.toml` file, or any login.
+cookies, window, and public IP. You do **not** need Go or a `routes.toml`
+file. Startup asks for your Decodo residential-proxy username and password.
 
 Status: two identities, automatic routes. Cap stays at 2 until the isolation
 suite is signed off ([`docs/ENGINEERING_PLAN.md`](docs/ENGINEERING_PLAN.md), M9).
@@ -10,13 +10,15 @@ Downloads: [latest GitHub Release](https://github.com/Nareik33L/tab-router/relea
 
 ## Quick start (Terminal, no Go)
 
-You need a Mac or a Windows PC, and **Terminal** (Mac) or **PowerShell**
-(Windows). There is nothing to sign up for.
+You need a Mac or a Windows PC, **Terminal** (Mac) or **PowerShell**
+(Windows), and a Decodo residential proxy username and password. That is
+the proxy user from the Decodo dashboard, not the website login email.
 
-The first start downloads official Chromium (not Google Chrome) and a
-local network-exit helper (Tor). The windows are titled Chromium.
-Tab Router then asks how many identities and which URL, provisions one
-isolated route per identity, verifies them, and opens the browsers.
+The first start downloads official Chromium (not Google Chrome). The
+windows are titled Chromium. Tab Router asks for the Decodo username and
+password, then how many identities and which URL. It provisions one
+isolated residential session per identity, verifies them, and opens the
+browsers. Set `DECODO_USERNAME` and `DECODO_PASSWORD` to skip the prompt.
 
 ### Mac (Apple chip — M1, M2, M3, M4)
 
@@ -39,20 +41,25 @@ xattr -c tab-router 2>/dev/null
 When it asks:
 
 ```
+Decodo sign-in
+Username:
+Password:
 Number of identities [2]:
 Startup URL (blank for none):
 ```
 
-Type `2`, press Enter, then paste a URL such as `https://example.com` and
-press Enter. Or skip the prompts:
+Type the proxy username, then the password (it is not shown as you type),
+then `2`, then a URL such as `https://example.com`. Or set the two
+environment variables and skip the sign-in prompt:
 
 ```sh
 cd ~/tab-router-app
 ./tab-router --identities 2 --url https://example.com
 ```
 
-Two browser windows should open. You never create a route file and you
-never log in.
+Two browser windows should open. You never create a route file. The
+password is kept for this run only: it is not saved, not printed, and not
+passed to Chromium.
 
 If macOS says the app is damaged or cannot be opened, run
 `xattr -c ~/tab-router-app/tab-router` then retry `./tab-router` from
@@ -116,8 +123,8 @@ Isolation verification: PASSED
 
 ```
  tab-router (controller)
- ├─ Identity 001 ── Chromium #1 ──proxy──▶ Gate 001 ──▶ Route 001 (local Tor circuit) ──▶ egress IP-A
- └─ Identity 002 ── Chromium #2 ──proxy──▶ Gate 002 ──▶ Route 002 (local Tor circuit) ──▶ egress IP-B
+ ├─ Identity 001 ── Chromium #1 ──proxy──▶ Gate 001 ──▶ Route 001 (Decodo residential session) ──▶ egress IP-A
+ └─ Identity 002 ── Chromium #2 ──proxy──▶ Gate 002 ──▶ Route 002 (Decodo residential session) ──▶ egress IP-B
 ```
 
 * One Chromium process tree per identity, launched with a hardened flag set
@@ -125,18 +132,13 @@ Isolation verification: PASSED
 * The gate is a local SOCKS5 server that forwards only while its route is
   verified `READY`. When the route fails the gate refuses every request, so
   the browser shows a connection error instead of using the host network.
-  Chromium never sees Tor, relays, or credentials.
-* On start, Tab Router downloads a pinned Tor Expert Bundle if needed and
-  provisions one independent circuit per identity (no administrator rights,
-  no host routing changes, no account). The public IP observed at startup
-  is pinned for the rest of that session and is not allowed to rotate.
-  Traffic leaves through Tor; some sites block it. That is the no-login
-  way to get two different public IPs.
-* Optional residential exits use Decodo when `[routing] provider = "decodo"`.
-  The app asks for an activation key, the backend returns limited proxy
-  access, and each identity gets its own 24-hour sticky session. There is
-  still no `routes.toml`. If Decodo or the activation server is down, Tab
-  Router stops. It does not fall back to Tor or to the normal connection.
+  Chromium never sees the Decodo gateway or credentials.
+* On start, Tab Router asks for the Decodo proxy username and password
+  (or reads `DECODO_USERNAME` and `DECODO_PASSWORD`) and opens one sticky
+  residential session per identity. No administrator rights and no host
+  routing changes. The public IP observed at startup is kept for that
+  session and is not allowed to rotate. If Decodo cannot be reached, Tab
+  Router stops. It does not fall back to another network.
   See [`docs/adr/0005-decodo-residential.md`](docs/adr/0005-decodo-residential.md).
 * DNS is delegated through the route; the browser never resolves hostnames
   locally.
@@ -144,9 +146,7 @@ Isolation verification: PASSED
   reported ready. If any check fails, every browser is terminated and the
   terminal says so.
 
-Read [`docs/SCOPE.md`](docs/SCOPE.md) for the full requirements and
-[`docs/adr/0004-local-automatic-exits.md`](docs/adr/0004-local-automatic-exits.md)
-for why the default path has no login.
+Read [`docs/SCOPE.md`](docs/SCOPE.md) for the full requirements.
 
 Extra commands (from `~/tab-router-app`, or `$HOME\tab-router-app` on Windows):
 
@@ -255,7 +255,7 @@ controller/health     runtime probes, fail-closed enforcement, leak alarms
 controller/browser    Chromium finder, launcher, CDP-over-pipe client, prefs
 controller/identity   identity sets, identity.json, environments
 controller/config     config.toml / optional routes.toml
-routing/manager       Provisioner (local Tor by default, static/Mullvad overrides)
+routing/manager       Provisioner (Decodo residential sessions; explicit routes for tests)
 routing/provider      Route, RoutingProvider, Gate
 routing/tor           pinned Tor Expert Bundle + local daemon
 routing/wireguard     userspace WireGuard (optional Mullvad override)

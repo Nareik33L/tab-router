@@ -37,6 +37,8 @@ func TestStaticProvisionsIndependentSlots(t *testing.T) {
 }
 
 func TestResolveOrder(t *testing.T) {
+	t.Setenv("DECODO_USERNAME", "")
+	t.Setenv("DECODO_PASSWORD", "")
 	dir := t.TempDir()
 	ctx := context.Background()
 	explicit := []provider.RouteDef{{ID: "r", Type: "socks5", Address: "h:1"}}
@@ -48,12 +50,9 @@ func TestResolveOrder(t *testing.T) {
 		t.Fatalf("got %T", p)
 	}
 
-	p, name, err = Resolve(ctx, dir, filepath.Join(dir, "missing.toml"), nil, 2)
-	if err != nil || name != "tor" {
-		t.Fatalf("want tor, got %v %s", err, name)
-	}
-	if _, ok := p.(*Local); !ok {
-		t.Fatalf("got %T", p)
+	_, name, err = Resolve(ctx, dir, filepath.Join(dir, "missing.toml"), nil, 2)
+	if err == nil || name == "tor" || !strings.Contains(err.Error(), "decodo") {
+		t.Fatalf("startup without credentials must fail on decodo, got %v %s", err, name)
 	}
 
 	routes := filepath.Join(dir, "routes.toml")
@@ -61,9 +60,9 @@ func TestResolveOrder(t *testing.T) {
 	if err := os.WriteFile(routes, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = Resolve(ctx, dir, routes, nil, 2)
-	if !errors.Is(err, ErrTryRoutes) {
-		t.Fatalf("want ErrTryRoutes, got %v", err)
+	_, name, err = Resolve(ctx, dir, routes, nil, 2)
+	if err == nil || errors.Is(err, ErrTryRoutes) || name == "tor" {
+		t.Fatalf("routes.toml must not replace decodo, got %v %s", err, name)
 	}
 
 	priv, _ := wireguard.GeneratePrivateKey()
@@ -79,12 +78,11 @@ func TestResolveOrder(t *testing.T) {
 	if err := SaveFile(Path(dir), f); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("DECODO_USERNAME", "account")
+	t.Setenv("DECODO_PASSWORD", "secret")
 	p, name, err = Resolve(ctx, dir, routes, nil, 2)
-	if err != nil || name != "mullvad" {
-		t.Fatalf("provider.toml should win over routes.toml: %v %s", err, name)
-	}
-	if p.Name() != "mullvad" {
-		t.Fatalf("name %s", p.Name())
+	if err != nil || name != "decodo" || p.Name() != "decodo" {
+		t.Fatalf("decodo should be selected, got %v %s", err, name)
 	}
 }
 

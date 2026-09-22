@@ -388,8 +388,8 @@ func TestAuthenticatedUpstreams(t *testing.T) {
 }
 
 // TestAutomaticProvisionWithoutRoutesFile is the product UX: identities + URL
-// with no routes.toml and no login. Tests inject RouteDefs (in-process infra)
-// so CI does not need a live Tor network; production Resolve defaults to tor.
+// with no routes.toml. Tests inject RouteDefs (in-process infra) so CI does
+// not need a live Decodo account. Production startup asks for Decodo credentials.
 func TestAutomaticProvisionWithoutRoutesFile(t *testing.T) {
 	h := newHarness(t)
 	ctx := ctxT(t)

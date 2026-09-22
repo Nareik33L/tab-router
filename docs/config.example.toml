@@ -1,6 +1,7 @@
 # Tab Router configuration (non-secret).
-# Network routes are provisioned automatically on start. No login required.
-# Power users may still drop a routes.toml next to this file.
+# Startup asks for the Decodo proxy username and password.
+# DECODO_USERNAME and DECODO_PASSWORD skip that prompt.
+# An explicit --routes file overrides Decodo for tests.
 identities = 2
 startup_url = ""
 persistent_identities = true
@@ -18,17 +19,13 @@ timeout_seconds = 20
 probe_interval_seconds = 10
 ip_check_interval_seconds = 60
 
-# Leave provider empty for local Tor exits (no account).
-# "decodo" requires an activation server, or DECODO_USERNAME and
-# DECODO_PASSWORD in the environment for local development.
-# A Decodo failure does not fall back to Tor.
+# Optional Decodo gateway settings. Startup uses Decodo either way.
+# Country is optional. Session length defaults to 1440 minutes.
 # [routing]
-# provider = "decodo"
 # country = "gb"
 # session_minutes = 1440
-#
-# [activation]
-# server = "https://activation.example.com"
+# host = "gate.decodo.com"
+# port = 7000
 
 # Defaults for identities created from now on. Empty = detect from host once.
 [environment]

@@ -34,7 +34,7 @@ jobs:
           body: |
             Tab Router **${{ github.ref_name }}** — two isolated Chromium windows, each with its own profile and public IP.
 
-            You do **not** need Go. You do **not** need an account. You do **not** need a `routes.toml` file.
+            You do **not** need Go or a `routes.toml` file. Startup asks for your Decodo residential-proxy username and password. Set `DECODO_USERNAME` and `DECODO_PASSWORD` to skip the prompt.
 
             Open Terminal (Mac) or PowerShell (Windows). Download, then start:
 
@@ -66,4 +66,4 @@ jobs:
 
             If SmartScreen appears: More info → Run anyway.
 
-            The first start downloads Chromium and a local Tor exit helper. Versioned files (`tab-router-v…-darwin-arm64` and so on) are also attached.
+            The first start downloads Chromium, then asks for the Decodo proxy username and password. Versioned files (`tab-router-v…-darwin-arm64` and so on) are also attached.

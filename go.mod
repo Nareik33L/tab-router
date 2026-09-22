@@ -10,6 +10,7 @@ require (
 require (
 	github.com/BurntSushi/toml v1.4.0
 	golang.org/x/crypto v0.13.0
+	golang.org/x/term v0.22.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
 )
 

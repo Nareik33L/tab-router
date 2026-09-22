@@ -11,14 +11,13 @@ import (
 	"github.com/Nareik33L/tab-router/routing/manager"
 )
 
-func TestResolveDefaultsToLocalExits(t *testing.T) {
+func TestResolveRequiresDecodoCredentials(t *testing.T) {
+	t.Setenv("DECODO_USERNAME", "")
+	t.Setenv("DECODO_PASSWORD", "")
 	dir := t.TempDir()
-	p, name, err := manager.Resolve(context.Background(), dir, filepath.Join(dir, "routes.toml"), nil, 2)
-	if err != nil || name != "tor" {
-		t.Fatalf("want tor provisioner, got %v %s", err, name)
-	}
-	if _, ok := p.(*manager.Local); !ok {
-		t.Fatalf("got %T", p)
+	_, name, err := manager.Resolve(context.Background(), dir, filepath.Join(dir, "routes.toml"), nil, 2)
+	if err == nil || name == "tor" || !strings.Contains(err.Error(), "decodo") {
+		t.Fatalf("want decodo credential error, got %v %s", err, name)
 	}
 }
 

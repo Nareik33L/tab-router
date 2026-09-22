@@ -71,9 +71,9 @@ type HealthConfig struct {
 	IPCheckIntervalSeconds int `toml:"ip_check_interval_seconds"`
 }
 
-// RoutingConfig selects an explicit upstream provider. Empty keeps the
-// default local Tor exits. "decodo" is fatal when it cannot be built:
-// startup does not fall through to Tor.
+// RoutingConfig carries optional Decodo gateway settings. Startup always
+// uses Decodo. Host, port, country, and session length are optional.
+// An unknown provider name is rejected. Tor is not selected.
 type RoutingConfig struct {
 	Provider       string `toml:"provider"`
 	Country        string `toml:"country"`
@@ -87,7 +87,8 @@ type ActivationConfig struct {
 	Server string `toml:"server"`
 }
 
-// DecodoSelected reports whether this config explicitly asks for Decodo.
+// DecodoSelected reports whether config.toml names the Decodo provider.
+// Startup uses Decodo either way; this only reflects the written value.
 func (c Config) DecodoSelected() bool {
 	return strings.EqualFold(strings.TrimSpace(c.Routing.Provider), "decodo")
 }

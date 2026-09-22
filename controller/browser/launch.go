@@ -172,7 +172,8 @@ func scrubEnv(env []string, timezone string) []string {
 	for _, kv := range env {
 		k, _, _ := strings.Cut(kv, "=")
 		switch strings.ToLower(k) {
-		case "http_proxy", "https_proxy", "all_proxy", "no_proxy", "socks_proxy", "ftp_proxy", "tz":
+		case "http_proxy", "https_proxy", "all_proxy", "no_proxy", "socks_proxy", "ftp_proxy", "tz",
+			"decodo_username", "decodo_password", "decodo_host", "decodo_port", "decodo_country", "decodo_session_minutes":
 			continue
 		}
 		out = append(out, kv)
