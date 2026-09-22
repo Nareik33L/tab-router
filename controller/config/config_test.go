@@ -21,6 +21,26 @@ func TestValidateURL(t *testing.T) {
 	}
 }
 
+func TestWindowsMode(t *testing.T) {
+	c := Defaults()
+	c.Windows.Mode = "sideways"
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "windows.mode") {
+		t.Fatalf("expected mode error, got %v", err)
+	}
+	c.Windows.Mode = "tile"
+	c.Windows.FocusNext = "ctrl+not-a-key"
+	if err := c.Validate(); err == nil {
+		t.Fatal("expected shortcut error")
+	}
+	c.Windows.FocusNext = "ctrl+alt+right"
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if c.Windows.Mode != "tile" {
+		t.Fatalf("mode %q", c.Windows.Mode)
+	}
+}
+
 func TestIdentityCap(t *testing.T) {
 	c := Defaults()
 	c.Identities = MaxIdentities + 1

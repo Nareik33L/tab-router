@@ -22,6 +22,7 @@ import (
 	"github.com/Nareik33L/tab-router/controller/browser"
 	"github.com/Nareik33L/tab-router/controller/config"
 	"github.com/Nareik33L/tab-router/controller/startup"
+	"github.com/Nareik33L/tab-router/controller/window"
 	"github.com/Nareik33L/tab-router/ipc"
 	"github.com/Nareik33L/tab-router/routing/manager"
 	"github.com/Nareik33L/tab-router/routing/provider"
@@ -66,6 +67,8 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage:")
 		fmt.Fprintln(os.Stderr, "  tab-router [--identities N] [--url URL] [--fresh]")
 		fmt.Fprintln(os.Stderr, "  tab-router --status | --stop | --diagnostics [--json]")
+		fmt.Fprintln(os.Stderr, "  tab-router windows tile | restore | manual | auto | focus-next | focus-prev | displays")
+		fmt.Fprintln(os.Stderr, "  tab-router windows display <id|name|index>")
 		fmt.Fprintln(os.Stderr, "  tab-router route-check            (dev: print the public IP of each route)")
 		fmt.Fprintln(os.Stderr)
 		fs.PrintDefaults()
@@ -93,6 +96,8 @@ func run(args []string) int {
 	switch {
 	case sub == "route-check":
 		return routeCheck(ov)
+	case sub == "windows":
+		return runWindows(ov, fs.Args())
 	case sub != "":
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", sub)
 		return exitUsage
@@ -233,6 +238,16 @@ func printStatus(st startup.Status) {
 	fmt.Printf("Browser: %s (%s)\n", st.Chromium, st.Source)
 	if st.HostIPv4 != "" {
 		fmt.Printf("Host IP: %s (never used by identities)\n", st.HostIPv4)
+	}
+	if st.Windows != nil {
+		fmt.Printf("Windows: %s", st.Windows.Mode)
+		if st.Windows.AutoArrange {
+			fmt.Printf(", auto-arrange")
+		}
+		if st.Windows.Display != "" {
+			fmt.Printf(", display %s", st.Windows.Display)
+		}
+		fmt.Println()
 	}
 	for _, id := range st.Identities {
 		state := id.RouteStatus
@@ -429,6 +444,133 @@ func prompt() (int, string, bool) {
 		}
 	}
 	return n, u, true
+}
+
+func runWindows(ov config.Overrides, args []string) int {
+	usage := func() {
+		fmt.Fprintln(os.Stderr, "Usage:")
+		fmt.Fprintln(os.Stderr, "  tab-router windows tile")
+		fmt.Fprintln(os.Stderr, "  tab-router windows restore")
+		fmt.Fprintln(os.Stderr, "  tab-router windows manual")
+		fmt.Fprintln(os.Stderr, "  tab-router windows auto")
+		fmt.Fprintln(os.Stderr, "  tab-router windows focus-next")
+		fmt.Fprintln(os.Stderr, "  tab-router windows focus-prev")
+		fmt.Fprintln(os.Stderr, "  tab-router windows displays")
+		fmt.Fprintln(os.Stderr, "  tab-router windows display <id|name|index>")
+	}
+	if len(args) < 1 {
+		usage()
+		return exitUsage
+	}
+	cfg, ok := loadConfig(ov)
+	if !ok {
+		return exitUsage
+	}
+	c, err := ipc.Dial(cfg.DataDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "tab-router is not running")
+		return exitUsage
+	}
+	switch args[0] {
+	case "tile":
+		var res window.ArrangeResult
+		if err := c.Call("windows.tile", nil, &res); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return exitUsage
+		}
+		name := res.Display.Name
+		if name == "" {
+			name = res.Display.ID
+		}
+		fmt.Printf("Tiled %d windows in a %dx%d grid on %s\n", res.Count, res.Columns, res.Rows, name)
+		if res.Fallback {
+			fmt.Printf("Saved display is not connected; using %s\n", name)
+		}
+		if res.Focused > 0 {
+			fmt.Printf("Focused identity %03d\n", res.Focused)
+		}
+	case "restore":
+		if err := c.Call("windows.restore", nil, nil); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return exitUsage
+		}
+		fmt.Println("Restored the previous window layout")
+	case "manual":
+		if err := c.Call("windows.manual", nil, nil); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return exitUsage
+		}
+		fmt.Println("Manual layout. Windows will stay where you put them.")
+	case "auto":
+		if err := c.Call("windows.auto", nil, nil); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return exitUsage
+		}
+		fmt.Println("Auto-arrange on. Closing or adding a window rebuilds the grid.")
+	case "focus-next":
+		return printFocus(c, "windows.focus_next")
+	case "focus-prev", "focus-previous":
+		return printFocus(c, "windows.focus_prev")
+	case "displays":
+		var out struct {
+			Displays []window.Display `json:"displays"`
+			Selected string           `json:"selected"`
+		}
+		if err := c.Call("windows.displays", nil, &out); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return exitUsage
+		}
+		if len(out.Displays) == 0 {
+			fmt.Println("No displays reported")
+			return exitOK
+		}
+		for i, d := range out.Displays {
+			mark := " "
+			if d.ID == out.Selected || d.Name == out.Selected || (out.Selected == "" && d.Primary) {
+				mark = "*"
+			}
+			name := d.Name
+			if name == "" {
+				name = d.ID
+			}
+			fmt.Printf("%s %d  %s  %dx%d  work %dx%d at %d,%d  scale %.2f\n",
+				mark, i+1, name, d.Bounds.Width, d.Bounds.Height, d.Work.Width, d.Work.Height, d.Work.X, d.Work.Y, d.Scale)
+		}
+	case "display":
+		if len(args) < 2 {
+			usage()
+			return exitUsage
+		}
+		var res window.ArrangeResult
+		if err := c.Call("windows.display", map[string]string{"display": args[1]}, &res); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return exitUsage
+		}
+		name := res.Display.Name
+		if name == "" {
+			name = args[1]
+		}
+		if res.Count > 0 {
+			fmt.Printf("Tiled %d windows on %s\n", res.Count, name)
+		} else {
+			fmt.Printf("Windows will tile on %s\n", name)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "unknown windows command %q\n", args[0])
+		usage()
+		return exitUsage
+	}
+	return exitOK
+}
+
+func printFocus(c *ipc.Client, method string) int {
+	var index int
+	if err := c.Call(method, nil, &index); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return exitUsage
+	}
+	fmt.Printf("Focused identity %03d\n", index)
+	return exitOK
 }
 
 func isTerminal(f *os.File) bool {

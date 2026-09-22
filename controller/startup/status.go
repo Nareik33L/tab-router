@@ -8,6 +8,7 @@ import (
 
 	"github.com/Nareik33L/tab-router/controller/identity"
 	"github.com/Nareik33L/tab-router/controller/verify"
+	"github.com/Nareik33L/tab-router/controller/window"
 	"github.com/Nareik33L/tab-router/ipc"
 )
 
@@ -22,6 +23,7 @@ type Status struct {
 	HostIPv6   string           `json:"host_ipv6,omitempty"`
 	Identities []IdentityStatus `json:"identities"`
 	Events     []string         `json:"recent_events"`
+	Windows    *window.Info     `json:"windows,omitempty"`
 }
 
 // IdentityStatus is one identity's live state.
@@ -64,6 +66,10 @@ type HealthStatus struct {
 // Status builds the current report.
 func (s *Session) Status() Status {
 	st := Status{Version: Version, PID: pid(), StartedAt: s.Started, Chromium: s.ChromeVer, Source: s.Chromium.Source, HostIPv4: s.hostIPv4, HostIPv6: s.hostIPv6}
+	if s.windows != nil {
+		info := s.windows.Info()
+		st.Windows = &info
+	}
 	for _, sub := range s.subjects {
 		is := IdentityStatus{
 			Index:       sub.Identity.Index,
@@ -161,6 +167,36 @@ func (s *Session) IPCHandlers(requestStop func()) map[string]ipc.Handler {
 		"shutdown": func(ctx context.Context, _ json.RawMessage) (any, error) {
 			go requestStop()
 			return "stopping", nil
+		},
+		"windows.tile": func(ctx context.Context, _ json.RawMessage) (any, error) {
+			return s.tileWindows(ctx)
+		},
+		"windows.restore": func(ctx context.Context, _ json.RawMessage) (any, error) {
+			return nil, s.restoreWindows(ctx)
+		},
+		"windows.manual": func(ctx context.Context, _ json.RawMessage) (any, error) {
+			return s.windowsMode("manual")
+		},
+		"windows.auto": func(ctx context.Context, _ json.RawMessage) (any, error) {
+			return s.windowsMode("auto")
+		},
+		"windows.focus_next": func(ctx context.Context, _ json.RawMessage) (any, error) {
+			return s.focusWindows(ctx, 1)
+		},
+		"windows.focus_prev": func(ctx context.Context, _ json.RawMessage) (any, error) {
+			return s.focusWindows(ctx, -1)
+		},
+		"windows.displays": func(ctx context.Context, _ json.RawMessage) (any, error) {
+			return s.listDisplays()
+		},
+		"windows.display": func(ctx context.Context, p json.RawMessage) (any, error) {
+			var a struct {
+				Display string `json:"display"`
+			}
+			if err := json.Unmarshal(p, &a); err != nil {
+				return nil, err
+			}
+			return s.setDisplay(ctx, a.Display)
 		},
 	}
 }

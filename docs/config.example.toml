@@ -18,6 +18,18 @@ timeout_seconds = 20
 probe_interval_seconds = 10
 ip_check_interval_seconds = 60
 
+# Window arrangement is optional. manual (the default) leaves windows
+# where you put them. tile packs them into a grid at startup.
+# auto_arrange rebuilds that grid when a window closes.
+# focus_next / focus_previous are global shortcuts; leave them empty to
+# disable. Examples: "ctrl+alt+right", "ctrl+alt+left".
+# [windows]
+# mode = "manual"
+# auto_arrange = false
+# display = "primary"
+# focus_next = ""
+# focus_previous = ""
+
 # Defaults for identities created from now on. Empty = detect from host once.
 [environment]
 locale = ""
