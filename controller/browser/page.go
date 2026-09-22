@@ -150,7 +150,7 @@ func (p *Page) navigate(ctx context.Context, url string, documentOnly bool) (Nav
 func transientNavError(s string) bool {
 	// ERR_FAILED is how Chromium reports a reset keep-alive after we tore
 	// down gate tunnels; the next attempt usually succeeds.
-	return strings.Contains(s, "ERR_ABORTED") || strings.Contains(s, "ERR_FAILED")
+	return strings.Contains(s, "ERR_ABORTED") || strings.Contains(s, "ERR_FAILED") || strings.Contains(s, "ERR_SOCKS_CONNECTION_FAILED")
 }
 
 func (p *Page) navigateOnce(ctx context.Context, url string, documentOnly bool) (NavResult, error) {

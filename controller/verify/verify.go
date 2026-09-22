@@ -560,6 +560,9 @@ func V9StartupURL(ctx context.Context, s *Subject, page *browser.Page, startupUR
 	saw := fresh || reused
 	if res.Blocked() && !saw {
 		c.Detail = "navigation failed: " + res.ErrorText
+		if fail := gateFailureSince(s.Gate.EventsSince(cursor), host); fail != "" {
+			c.Detail += " (" + fail + ")"
+		}
 		return o.report(s, c), res
 	}
 	if saw && res.Status > 0 && !res.Blocked() {
@@ -590,6 +593,21 @@ func V9StartupURL(ctx context.Context, s *Subject, page *browser.Page, startupUR
 	}
 	c.Detail = fmt.Sprintf("no CONNECT to %s observed at gate", host)
 	return o.report(s, c), res
+}
+
+func gateFailureSince(events []provider.ConnectEvent, host string) string {
+	var last string
+	for _, ev := range events {
+		if !strings.EqualFold(ev.Host, host) || ev.Reply == socks5.RepSuccess {
+			continue
+		}
+		if ev.Err != "" {
+			last = ev.Err
+			continue
+		}
+		last = (&socks5.ReplyError{Code: ev.Reply}).Error()
+	}
+	return last
 }
 
 func gateSawHost(events []provider.ConnectEvent, host string) bool {

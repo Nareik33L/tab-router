@@ -194,33 +194,7 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 	}
 
 	routeErr := s.parallel(func(sub *verify.Subject) error {
-		if err := sub.Route.Start(ctx); err != nil {
-			rep.Result(sub.Label(), routeLabel(sub), "FAILED ("+err.Error()+")", false)
-			return err
-		}
-		c := verify.V1RouteUp(ctx, sub, vopts)
-		if !c.Passed {
-			rep.Result(sub.Label(), routeLabel(sub), "FAILED ("+c.Detail+")", false)
-			return errors.New(c.Detail)
-		}
-		if pinner, ok := s.prov.(manager.SessionExits); ok {
-			if err := pinner.PinExit(ctx, sub.Identity.RouteSlot, sub.Route.Def().Username); err != nil {
-				rep.Line("%s: session exit not pinned (%v); an IP change will fail-closed", sub.Label(), err)
-			} else {
-				timeout := vopts.Timeout
-				if timeout <= 0 {
-					timeout = 20 * time.Second
-				}
-				if ip, err := provider.PublicIP(ctx, sub.Route.Dial, vopts.EchoURL, timeout); err == nil && ip != nil {
-					// Pin may close leftover circuits; the session IP is whatever
-					// the pinned exit emits now, not a stale V1 probe on another path.
-					sub.RouteIP = ip
-				}
-			}
-		}
-		sub.Route.SetStatus(provider.StatusReady)
-		rep.Result(sub.Label(), routeLabel(sub), "CONNECTED", true)
-		return nil
+		return s.bringUpRoute(ctx, sub, vopts)
 	})
 	if routeErr != nil {
 		rep.Line("ERROR: a route could not be established. No identity was started over the host network.")
@@ -331,6 +305,72 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 
 func routeLabel(sub *verify.Subject) string {
 	return fmt.Sprintf("Route %03d", sub.Identity.RouteSlot)
+}
+
+// bringUpRoute starts the route and proves it can reach the echo host.
+// A Decodo session that fails that probe is replaced once. The replacement
+// happens before any browser starts, so the session IP is the one that
+// actually came up.
+func (s *Session) bringUpRoute(ctx context.Context, sub *verify.Subject, vopts verify.Options) error {
+	rep := s.Report
+	if err := sub.Route.Start(ctx); err != nil {
+		rep.Result(sub.Label(), routeLabel(sub), "FAILED ("+err.Error()+")", false)
+		return err
+	}
+	c := verify.V1RouteUp(ctx, sub, vopts)
+	if !c.Passed && s.replaceUnreachable(ctx, sub) {
+		c = verify.V1RouteUp(ctx, sub, vopts)
+	}
+	if !c.Passed {
+		rep.Result(sub.Label(), routeLabel(sub), "FAILED ("+c.Detail+")", false)
+		return errors.New(c.Detail)
+	}
+	if pinner, ok := s.prov.(manager.SessionExits); ok {
+		if err := pinner.PinExit(ctx, sub.Identity.RouteSlot, sub.Route.Def().Username); err != nil {
+			rep.Line("%s: session exit not pinned (%v); an IP change will fail-closed", sub.Label(), err)
+		} else {
+			timeout := vopts.Timeout
+			if timeout <= 0 {
+				timeout = 20 * time.Second
+			}
+			if ip, err := provider.PublicIP(ctx, sub.Route.Dial, vopts.EchoURL, timeout); err == nil && ip != nil {
+				// Pin may close leftover circuits; the session IP is whatever
+				// the pinned exit emits now, not a stale V1 probe on another path.
+				sub.RouteIP = ip
+			}
+		}
+	}
+	sub.Route.SetStatus(provider.StatusReady)
+	rep.Result(sub.Label(), routeLabel(sub), "CONNECTED", true)
+	return nil
+}
+
+// replaceUnreachable mints one new upstream session when the current one
+// cannot reach the echo host. It returns false when the provisioner cannot
+// replace a session or the replacement fails to start.
+func (s *Session) replaceUnreachable(ctx context.Context, sub *verify.Subject) bool {
+	replacer, ok := s.prov.(manager.SessionReplacer)
+	if !ok {
+		return false
+	}
+	s.Report.Line("%s: residential session could not reach the echo host; requesting another", sub.Label())
+	next, err := replacer.ReplaceSession(ctx, sub.Identity.RouteSlot)
+	if err != nil {
+		return false
+	}
+	if err := next.Start(ctx); err != nil {
+		_ = next.Stop()
+		return false
+	}
+	old := sub.Route
+	if sub.Gate != nil {
+		sub.Gate.SetRoute(next)
+	}
+	sub.Route = next
+	if old != nil {
+		_ = old.Stop()
+	}
+	return true
 }
 
 // separateSharedExits asks a SessionReplacer for a new session when two
@@ -564,7 +604,7 @@ func (s *Session) failAndAbort(ctx context.Context) {
 			rep.Result(sub.Label(), "Network verification", "FAILED ("+strings.Join(failed, ", ")+")", false)
 			onlyURL := len(seen) == 1 && seen["V9"]
 			if onlyURL {
-				rep.Line("ERROR: %s isolation passed; the startup URL did not load (the site may be slow or blocking Tor).", sub.Label())
+				rep.Line("ERROR: %s isolation passed; the startup URL did not load through its route.", sub.Label())
 			} else {
 				rep.Line("ERROR: %s could not be verified as isolated.", sub.Label())
 			}

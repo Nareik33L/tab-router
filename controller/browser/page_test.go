@@ -35,6 +35,9 @@ func TestTransientNavError(t *testing.T) {
 	if !transientNavError("net::ERR_FAILED") {
 		t.Fatal("ERR_FAILED should retry once (stale connection after gate close)")
 	}
+	if !transientNavError("net::ERR_SOCKS_CONNECTION_FAILED") {
+		t.Fatal("ERR_SOCKS_CONNECTION_FAILED should retry (upstream blip)")
+	}
 	if transientNavError("net::ERR_PROXY_CONNECTION_FAILED") {
 		t.Fatal("proxy refuse must not be treated as a transient retry")
 	}

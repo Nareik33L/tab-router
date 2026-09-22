@@ -229,8 +229,9 @@ func (d *Decodo) Reestablish(ctx context.Context, slot int, failed provider.Rout
 	return d.route(slot)
 }
 
-// ReplaceSession mints a new session id for slot. Startup uses this only
-// when two identities observed the same public IP. Reestablish does not.
+// ReplaceSession mints a new session id for slot. Startup uses this when
+// two identities observed the same public IP, and once when a new session
+// cannot reach the echo host. Reestablish does not.
 func (d *Decodo) ReplaceSession(ctx context.Context, slot int) (provider.Route, error) {
 	if slot < 1 {
 		return nil, fmt.Errorf("decodo: no route for slot %d", slot)
