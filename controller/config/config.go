@@ -14,6 +14,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/Nareik33L/tab-router/controller/identity"
+	"github.com/Nareik33L/tab-router/controller/window"
 	"github.com/Nareik33L/tab-router/routing/platform"
 	"github.com/Nareik33L/tab-router/routing/provider"
 )
@@ -31,8 +32,9 @@ type Config struct {
 	IPv6                 bool   `toml:"ipv6"`
 	Headless             bool   `toml:"headless"`
 
-	Verify VerifyConfig `toml:"verify"`
-	Health HealthConfig `toml:"health"`
+	Verify  VerifyConfig  `toml:"verify"`
+	Health  HealthConfig  `toml:"health"`
+	Windows WindowsConfig `toml:"windows"`
 
 	// Environment holds defaults applied to identities when they are first
 	// created; Identity entries override them per index. Neither affects an
@@ -67,6 +69,21 @@ type VerifyConfig struct {
 type HealthConfig struct {
 	ProbeIntervalSeconds   int `toml:"probe_interval_seconds"`
 	IPCheckIntervalSeconds int `toml:"ip_check_interval_seconds"`
+}
+
+// WindowsConfig is optional window arrangement. The default is manual:
+// windows stay where the user put them, including when one closes.
+type WindowsConfig struct {
+	// Mode is "manual" or "tile". "tile" packs windows at startup.
+	Mode string `toml:"mode"`
+	// AutoArrange rebuilds the grid when a window is added or removed.
+	AutoArrange bool `toml:"auto_arrange"`
+	// Display is a monitor id, name, 1-based index, or "primary".
+	Display string `toml:"display"`
+	// FocusNext and FocusPrevious are optional global shortcuts, such as
+	// "ctrl+alt+right". Empty disables the shortcut.
+	FocusNext     string `toml:"focus_next"`
+	FocusPrevious string `toml:"focus_previous"`
 }
 
 // EnvironmentConfig are creation-time defaults for identity environments.
@@ -156,7 +173,8 @@ func Defaults() Config {
 			CompareHostIP:  true,
 			TimeoutSeconds: 20,
 		},
-		Health: HealthConfig{ProbeIntervalSeconds: 10, IPCheckIntervalSeconds: 60},
+		Health:  HealthConfig{ProbeIntervalSeconds: 10, IPCheckIntervalSeconds: 60},
+		Windows: WindowsConfig{Mode: window.ModeManual},
 	}
 }
 
@@ -253,6 +271,20 @@ func (c *Config) Validate() error {
 	}
 	if c.Health.IPCheckIntervalSeconds <= 0 {
 		c.Health.IPCheckIntervalSeconds = 60
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Windows.Mode)) {
+	case "", window.ModeManual:
+		c.Windows.Mode = window.ModeManual
+	case window.ModeTile:
+		c.Windows.Mode = window.ModeTile
+	default:
+		return fmt.Errorf("windows.mode %q must be manual or tile", c.Windows.Mode)
+	}
+	if _, err := window.ParseShortcut(c.Windows.FocusNext); err != nil {
+		return err
+	}
+	if _, err := window.ParseShortcut(c.Windows.FocusPrevious); err != nil {
+		return err
 	}
 	return nil
 }

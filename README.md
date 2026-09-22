@@ -112,6 +112,23 @@ Identity 002 → Route 002 → READY   …
 Isolation verification: PASSED
 ```
 
+Each identity is its own Chromium window. The windows open staggered, so
+they overlap and you can drag them. Arrangement is optional:
+
+```sh
+tab-router windows tile          # pack every window onto one display
+tab-router windows restore       # put them back
+tab-router windows manual        # leave them where they are
+tab-router windows focus-next
+tab-router windows displays
+tab-router windows display 2
+```
+
+Tile All fits every open window on the display's usable area (taskbar and
+dock excluded). A crowded grid makes windows small instead of stacking
+them. Closing a window does not move the others unless auto-arrange is
+enabled. See `[windows]` in `docs/config.example.toml`.
+
 ## How it works
 
 ```
@@ -165,7 +182,7 @@ never changes on its own:
 | --- | --- |
 | Locale / `Accept-Language` | `--lang`, `intl.accept_languages`, spellcheck dictionary |
 | Timezone | `TZ` for the process plus a DevTools timezone override on every page |
-| Window size and position | `--window-size`, `--window-position` (identities are tiled, never stacked exactly) |
+| Window size and position | `--window-size`, `--window-position` (staggered so the windows overlap; drag them, or run `tab-router windows tile`) |
 | Device scale factor, colour profile | `--force-device-scale-factor`, `--force-color-profile=srgb` |
 | Colour scheme | `--force-dark-mode` when `dark` |
 | Downloads | `download.default_directory` inside the identity directory |

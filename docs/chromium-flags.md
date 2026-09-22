@@ -52,7 +52,7 @@ Applied from the identity's pinned `Environment` (`identity.json`).
 | `intl.accept_languages`, `intl.selected_languages`, `spellcheck.dictionaries` | `Accept-Language` header and spellcheck consistent with the locale. |
 | `TZ=<zone>` environment variable | Process timezone (honoured on macOS). |
 | DevTools `Emulation.setTimezoneOverride` on every auto-attached page | Same timezone on Windows, where `TZ` is not honoured, and consistency everywhere. |
-| `--window-size`, `--window-position` | Stable geometry; identities are tiled so their windows never overlap exactly. |
+| `--window-size`, `--window-position` | Launch geometry. Windows are staggered so they overlap and can be dragged. `tab-router windows tile` is optional and does not change this pinned environment. |
 | `--force-device-scale-factor=<n>` | Stable DPR regardless of the display the window lands on. |
 | `--force-color-profile=srgb` | Identical rendering across monitors. |
 | `--force-dark-mode` (when `color_scheme = "dark"`) | Stable `prefers-color-scheme`. |

@@ -104,8 +104,8 @@ func NewEnvironment(index int, d EnvironmentDefaults) Environment {
 		e.ColorScheme = "light"
 	}
 	e.AcceptLanguages = acceptLanguagesFor(e.Locale)
-	// Deterministic tiling: identity 1 at the origin, each subsequent window
-	// stepped diagonally so title bars stay visible.
+	// Staggered launch positions. The windows overlap; Tile All is a separate
+	// command and does not change this pinned environment.
 	e.WindowX = 40 + (index-1)*60
 	e.WindowY = 40 + (index-1)*60
 	return e

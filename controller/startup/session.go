@@ -17,6 +17,7 @@ import (
 	"github.com/Nareik33L/tab-router/controller/health"
 	"github.com/Nareik33L/tab-router/controller/identity"
 	"github.com/Nareik33L/tab-router/controller/verify"
+	"github.com/Nareik33L/tab-router/controller/window"
 	"github.com/Nareik33L/tab-router/routing/manager"
 	"github.com/Nareik33L/tab-router/routing/provider"
 )
@@ -67,6 +68,7 @@ type Session struct {
 	finalURL map[*verify.Subject]string
 	closed   bool
 	done     chan struct{}
+	windows  *window.Manager
 }
 
 // Run executes the startup sequence. On any verification failure every
@@ -311,6 +313,7 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 		Reestablish:     s.reestablish,
 	})
 	s.monitor.Start(context.Background())
+	s.startWindowManager()
 	return s, nil
 }
 
@@ -506,6 +509,7 @@ func (s *Session) abort(ctx context.Context) {
 	}
 	s.closed = true
 	s.mu.Unlock()
+	s.stopWindows()
 	if s.monitor != nil {
 		s.monitor.Stop()
 	}
@@ -545,6 +549,7 @@ func (s *Session) Shutdown(ctx context.Context) {
 	if s.monitor != nil {
 		s.monitor.Stop()
 	}
+	s.saveWindows(ctx)
 	var wg sync.WaitGroup
 	for _, sub := range s.subjects {
 		if sub.Browser != nil {
@@ -640,6 +645,12 @@ func (s *Session) onHealthEvent(ev health.Event) {
 		rep.Line("ALARM %s: non-gate network endpoint observed: %s", label, ev.Detail)
 	case health.BrowserExited:
 		rep.Line("%s: browser closed; %s", label, ev.Detail)
+		s.mu.Lock()
+		closed := s.closed
+		s.mu.Unlock()
+		if !closed && s.windows != nil {
+			s.windows.OnCountChanged(context.Background(), s.controlled())
+		}
 	}
 }
 
