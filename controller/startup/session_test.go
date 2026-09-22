@@ -43,3 +43,26 @@ func TestRunWithBrokenLocalProvisionerStopsSafely(t *testing.T) {
 		t.Fatalf("must not ask for provider login:\n%s", out.String())
 	}
 }
+
+func TestDecodoSelectionFailsClosed(t *testing.T) {
+	t.Setenv("DECODO_USERNAME", "")
+	t.Setenv("DECODO_PASSWORD", "")
+	dir := t.TempDir()
+	cfg := config.Defaults()
+	cfg.DataDir = dir
+	cfg.RoutesPath = filepath.Join(dir, "routes.toml")
+	cfg.Headless = true
+	cfg.Identities = 2
+	cfg.Routing.Provider = "decodo"
+	var out bytes.Buffer
+	_, err := Run(context.Background(), cfg, NewReporter(&out, true), Options{})
+	if err == nil {
+		t.Fatal("expected decodo startup to fail without credentials")
+	}
+	if bytes.Contains(out.Bytes(), []byte("TAB ROUTER READY")) {
+		t.Fatal("READY without a decodo route")
+	}
+	if !strings.Contains(err.Error(), "decodo") {
+		t.Fatalf("error should name decodo, not fall through: %v", err)
+	}
+}

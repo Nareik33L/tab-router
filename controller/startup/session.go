@@ -110,7 +110,13 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 
 	prov := opts.Provisioner
 	if prov == nil {
-		p, _, err := manager.Resolve(ctx, cfg.DataDir, cfg.RoutesPath, opts.RouteDefs, cfg.Identities)
+		p, _, err := manager.Open(ctx, manager.Input{
+			DataDir:    cfg.DataDir,
+			RoutesPath: cfg.RoutesPath,
+			Explicit:   opts.RouteDefs,
+			N:          cfg.Identities,
+			Provider:   cfg.Routing.Provider,
+		})
 		switch {
 		case err == nil:
 			prov = p
@@ -221,6 +227,12 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 		s.abort(ctx)
 		return nil, fmt.Errorf("%w: %v", ErrRouteFailed, routeErr)
 	}
+	if err := s.separateSharedExits(ctx, vopts); err != nil {
+		rep.Line("ERROR: %v", err)
+		rep.Line("No identity was started over the host network.")
+		s.abort(ctx)
+		return nil, fmt.Errorf("%w: %v", ErrRouteFailed, err)
+	}
 
 	// 8: browsers.
 	launchErr := s.parallel(func(sub *verify.Subject) error {
@@ -301,6 +313,9 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 	}
 	n := uniqueChecks(s.subjects[0].Results)
 	rep.Line("Isolation verification: PASSED (%d/%d checks per identity)", n, n)
+	if s.prov != nil && s.prov.Name() == "decodo" {
+		rep.Line("Residential routing active")
+	}
 
 	s.monitor = health.New(s.subjects, health.Options{
 		ProbeInterval:   time.Duration(cfg.Health.ProbeIntervalSeconds) * time.Second,
@@ -316,6 +331,73 @@ func Run(ctx context.Context, cfg config.Config, rep *Reporter, opts Options) (*
 
 func routeLabel(sub *verify.Subject) string {
 	return fmt.Sprintf("Route %03d", sub.Identity.RouteSlot)
+}
+
+// separateSharedExits asks a SessionReplacer for a new session when two
+// identities observed the same public IP. Each slot is replaced at most
+// once; a remaining collision fails closed before any browser starts.
+func (s *Session) separateSharedExits(ctx context.Context, o verify.Options) error {
+	replacer, ok := s.prov.(manager.SessionReplacer)
+	if !ok {
+		return nil
+	}
+	replaced := map[int]bool{}
+	for {
+		slot, ip := sharedExit(s.subjects)
+		if slot == 0 {
+			return nil
+		}
+		if replaced[slot] {
+			return fmt.Errorf("residential exits are not distinct (%s)", ip)
+		}
+		replaced[slot] = true
+		var sub *verify.Subject
+		for _, cand := range s.subjects {
+			if cand.Identity.RouteSlot == slot {
+				sub = cand
+				break
+			}
+		}
+		if sub == nil {
+			return fmt.Errorf("residential exits are not distinct (%s)", ip)
+		}
+		s.Report.Line("%s shares egress %s; requesting another residential session", sub.Label(), ip)
+		next, err := replacer.ReplaceSession(ctx, slot)
+		if err != nil {
+			return err
+		}
+		if err := next.Start(ctx); err != nil {
+			_ = next.Stop()
+			return err
+		}
+		old := sub.Route
+		sub.Gate.SetRoute(next)
+		sub.Route = next
+		c := verify.V1RouteUp(ctx, sub, o)
+		if !c.Passed {
+			_ = next.Stop()
+			return errors.New(c.Detail)
+		}
+		if old != nil {
+			_ = old.Stop()
+		}
+		sub.Route.SetStatus(provider.StatusReady)
+	}
+}
+
+func sharedExit(subs []*verify.Subject) (int, string) {
+	seen := map[string]int{}
+	for _, sub := range subs {
+		if sub.RouteIP == nil {
+			continue
+		}
+		ip := sub.RouteIP.String()
+		if _, ok := seen[ip]; ok {
+			return sub.Identity.RouteSlot, ip
+		}
+		seen[ip] = sub.Identity.RouteSlot
+	}
+	return 0, ""
 }
 
 // pinSessionExits locks each local Tor process to the exit that carried

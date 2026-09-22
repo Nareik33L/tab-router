@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Nareik33L/tab-router/browser/chromium"
+	"github.com/Nareik33L/tab-router/controller/activation"
 	"github.com/Nareik33L/tab-router/controller/browser"
 	"github.com/Nareik33L/tab-router/controller/config"
 	"github.com/Nareik33L/tab-router/controller/startup"
@@ -66,6 +67,7 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "Usage:")
 		fmt.Fprintln(os.Stderr, "  tab-router [--identities N] [--url URL] [--fresh]")
 		fmt.Fprintln(os.Stderr, "  tab-router --status | --stop | --diagnostics [--json]")
+		fmt.Fprintln(os.Stderr, "  tab-router deactivate")
 		fmt.Fprintln(os.Stderr, "  tab-router route-check            (dev: print the public IP of each route)")
 		fmt.Fprintln(os.Stderr)
 		fs.PrintDefaults()
@@ -93,6 +95,8 @@ func run(args []string) int {
 	switch {
 	case sub == "route-check":
 		return routeCheck(ov)
+	case sub == "deactivate":
+		return deactivate(ov)
 	case sub != "":
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", sub)
 		return exitUsage
@@ -104,15 +108,15 @@ func run(args []string) int {
 		return runDiagnostics(ov, *asJSON, !*ascii)
 	}
 
-	interactive := !*noPrompt && fs.NFlag() == 0 && isTerminal(os.Stdin)
-	if interactive {
+	interactive := !*noPrompt && isTerminal(os.Stdin)
+	if interactive && fs.NFlag() == 0 && sub == "" {
 		n, u, ok := prompt()
 		if !ok {
 			return exitUsage
 		}
 		ov.Identities, ov.URL, ov.URLSet = n, u, true
 	}
-	return start(ov, !*ascii)
+	return start(ov, !*ascii, interactive)
 }
 
 func loadConfig(ov config.Overrides) (config.Config, bool) {
@@ -124,7 +128,7 @@ func loadConfig(ov config.Overrides) (config.Config, bool) {
 	return cfg, true
 }
 
-func start(ov config.Overrides, unicode bool) int {
+func start(ov config.Overrides, unicode bool, interactive bool) int {
 	cfg, ok := loadConfig(ov)
 	if !ok {
 		return exitUsage
@@ -132,6 +136,11 @@ func start(ov config.Overrides, unicode bool) int {
 	if _, err := ipc.Dial(cfg.DataDir); err == nil {
 		fmt.Fprintln(os.Stderr, "tab-router is already running; use --status or --stop")
 		return exitRunning
+	}
+	prov, err := prepareProvisioner(cfg, interactive)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return exitRoute
 	}
 	if err := ensureChromium(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -141,7 +150,7 @@ func start(ov config.Overrides, unicode bool) int {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rep := startup.NewReporter(os.Stdout, unicode)
-	sess, err := startup.Run(ctx, cfg, rep, startup.Options{Pin: chromium.Pin(), Unicode: unicode})
+	sess, err := startup.Run(ctx, cfg, rep, startup.Options{Pin: chromium.Pin(), Unicode: unicode, Provisioner: prov})
 	if err != nil {
 		return exitFor(err)
 	}
@@ -362,7 +371,22 @@ func routeCheck(ov config.Overrides) int {
 		}
 		explicit = defs
 	}
-	prov, name, err := manager.Resolve(ctx, cfg.DataDir, cfg.RoutesPath, explicit, cfg.Identities)
+	var prov manager.Provisioner
+	var name string
+	var err error
+	if len(explicit) == 0 {
+		prov, err = prepareProvisioner(cfg, false)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return exitRoute
+		}
+		if prov != nil {
+			name = prov.Name()
+		}
+	}
+	if prov == nil {
+		prov, name, err = manager.Resolve(ctx, cfg.DataDir, cfg.RoutesPath, explicit, cfg.Identities)
+	}
 	switch {
 	case err == nil:
 	case errors.Is(err, manager.ErrTryRoutes):
@@ -402,6 +426,118 @@ func routeCheck(ov config.Overrides) int {
 		_ = r.Stop()
 	}
 	return rc
+}
+
+func prepareProvisioner(cfg config.Config, interactive bool) (manager.Provisioner, error) {
+	if !cfg.DecodoSelected() {
+		return nil, nil
+	}
+	base := manager.DecodoConfig{
+		Host:           cfg.Routing.Host,
+		Port:           cfg.Routing.Port,
+		Country:        cfg.Routing.Country,
+		SessionMinutes: cfg.Routing.SessionMinutes,
+		StatePath:      filepath.Join(cfg.DataDir, "decodo-sessions.json"),
+	}
+	if os.Getenv("DECODO_USERNAME") != "" && os.Getenv("DECODO_PASSWORD") != "" {
+		return manager.DecodoFromEnv(cfg.DataDir, base)
+	}
+	if strings.TrimSpace(cfg.Activation.Server) == "" {
+		return nil, fmt.Errorf("decodo: set [activation] server, or DECODO_USERNAME and DECODO_PASSWORD for local development")
+	}
+	act, err := ensureActivation(cfg, interactive)
+	if err != nil {
+		return nil, err
+	}
+	base.Account = act.Proxy.Username
+	base.Password = act.Proxy.Password
+	if act.Proxy.Host != "" {
+		base.Host = act.Proxy.Host
+	}
+	if act.Proxy.Port != 0 {
+		base.Port = act.Proxy.Port
+	}
+	if base.Country == "" {
+		base.Country = act.Proxy.Country
+	}
+	if base.SessionMinutes == 0 {
+		base.SessionMinutes = act.Proxy.SessionMinutes
+	}
+	return manager.NewDecodo(base)
+}
+
+func ensureActivation(cfg config.Config, interactive bool) (*activation.Activation, error) {
+	client := activation.Client{Server: cfg.Activation.Server}
+	store := activation.Open(cfg.DataDir)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if rec, err := store.Load(); err == nil {
+		fmt.Println("Checking authorization")
+		act, err := client.Validate(ctx, rec.InstallationID, rec.Token)
+		if err == nil {
+			if err := store.Save(activation.Record{
+				Server: cfg.Activation.Server, InstallationID: act.InstallationID, Token: act.Token, ExpiresAt: act.ExpiresAt,
+			}); err != nil {
+				return nil, err
+			}
+			return act, nil
+		}
+		if errors.Is(err, activation.ErrUnavailable) {
+			return nil, err
+		}
+	}
+	if !interactive {
+		return nil, fmt.Errorf("activation required")
+	}
+	fmt.Println("Activation required")
+	fmt.Print("Enter your activation key: ")
+	in := bufio.NewReader(os.Stdin)
+	key, _ := in.ReadString('\n')
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, fmt.Errorf("activation required")
+	}
+	fmt.Println("Activating...")
+	fmt.Println("Checking authorization")
+	act, err := client.Activate(ctx, key, "")
+	if err != nil {
+		return nil, err
+	}
+	if err := store.Save(activation.Record{
+		Server: cfg.Activation.Server, InstallationID: act.InstallationID, Token: act.Token, ExpiresAt: act.ExpiresAt,
+	}); err != nil {
+		return nil, err
+	}
+	return act, nil
+}
+
+func deactivate(ov config.Overrides) int {
+	cfg, ok := loadConfig(ov)
+	if !ok {
+		return exitUsage
+	}
+	if strings.TrimSpace(cfg.Activation.Server) == "" {
+		fmt.Fprintln(os.Stderr, "error: no activation server configured")
+		return exitUsage
+	}
+	store := activation.Open(cfg.DataDir)
+	rec, err := store.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return exitUsage
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := (activation.Client{Server: cfg.Activation.Server}).Deactivate(ctx, rec.InstallationID, rec.Token); err != nil && !errors.Is(err, activation.ErrInvalidKey) && !errors.Is(err, activation.ErrRevoked) {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return exitRoute
+	}
+	if err := store.Clear(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return exitRoute
+	}
+	fmt.Println("Activation removed from this installation.")
+	return exitOK
 }
 
 func prompt() (int, string, bool) {

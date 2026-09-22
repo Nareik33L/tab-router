@@ -31,8 +31,10 @@ type Config struct {
 	IPv6                 bool   `toml:"ipv6"`
 	Headless             bool   `toml:"headless"`
 
-	Verify VerifyConfig `toml:"verify"`
-	Health HealthConfig `toml:"health"`
+	Verify     VerifyConfig     `toml:"verify"`
+	Health     HealthConfig     `toml:"health"`
+	Routing    RoutingConfig    `toml:"routing"`
+	Activation ActivationConfig `toml:"activation"`
 
 	// Environment holds defaults applied to identities when they are first
 	// created; Identity entries override them per index. Neither affects an
@@ -67,6 +69,27 @@ type VerifyConfig struct {
 type HealthConfig struct {
 	ProbeIntervalSeconds   int `toml:"probe_interval_seconds"`
 	IPCheckIntervalSeconds int `toml:"ip_check_interval_seconds"`
+}
+
+// RoutingConfig selects an explicit upstream provider. Empty keeps the
+// default local Tor exits. "decodo" is fatal when it cannot be built:
+// startup does not fall through to Tor.
+type RoutingConfig struct {
+	Provider       string `toml:"provider"`
+	Country        string `toml:"country"`
+	SessionMinutes int    `toml:"session_minutes"`
+	Host           string `toml:"host"`
+	Port           int    `toml:"port"`
+}
+
+// ActivationConfig is the non-secret address of the activation backend.
+type ActivationConfig struct {
+	Server string `toml:"server"`
+}
+
+// DecodoSelected reports whether this config explicitly asks for Decodo.
+func (c Config) DecodoSelected() bool {
+	return strings.EqualFold(strings.TrimSpace(c.Routing.Provider), "decodo")
 }
 
 // EnvironmentConfig are creation-time defaults for identity environments.
@@ -217,7 +240,25 @@ func Load(o Overrides) (Config, error) {
 		cfg.Headless = true
 	}
 	cfg.Fresh = o.Fresh
+	if err := applyEnv(&cfg); err != nil {
+		return cfg, err
+	}
 	return cfg, cfg.Validate()
+}
+
+func applyEnv(cfg *Config) error {
+	if v := strings.TrimSpace(os.Getenv("TAB_ROUTER_PROVIDER")); v != "" {
+		cfg.Routing.Provider = v
+	}
+	if v := strings.TrimSpace(os.Getenv("TAB_ROUTER_ACTIVATION_SERVER")); v != "" {
+		cfg.Activation.Server = v
+	}
+	if cfg.Activation.Server != "" {
+		if err := ValidateURL(cfg.Activation.Server); err != nil {
+			return fmt.Errorf("activation server: %w", err)
+		}
+	}
+	return nil
 }
 
 // Validate checks the merged configuration.

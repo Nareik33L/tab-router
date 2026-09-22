@@ -18,6 +18,18 @@ timeout_seconds = 20
 probe_interval_seconds = 10
 ip_check_interval_seconds = 60
 
+# Leave provider empty for local Tor exits (no account).
+# "decodo" requires an activation server, or DECODO_USERNAME and
+# DECODO_PASSWORD in the environment for local development.
+# A Decodo failure does not fall back to Tor.
+# [routing]
+# provider = "decodo"
+# country = "gb"
+# session_minutes = 1440
+#
+# [activation]
+# server = "https://activation.example.com"
+
 # Defaults for identities created from now on. Empty = detect from host once.
 [environment]
 locale = ""

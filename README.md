@@ -132,6 +132,12 @@ Isolation verification: PASSED
   is pinned for the rest of that session and is not allowed to rotate.
   Traffic leaves through Tor; some sites block it. That is the no-login
   way to get two different public IPs.
+* Optional residential exits use Decodo when `[routing] provider = "decodo"`.
+  The app asks for an activation key, the backend returns limited proxy
+  access, and each identity gets its own 24-hour sticky session. There is
+  still no `routes.toml`. If Decodo or the activation server is down, Tab
+  Router stops. It does not fall back to Tor or to the normal connection.
+  See [`docs/adr/0005-decodo-residential.md`](docs/adr/0005-decodo-residential.md).
 * DNS is delegated through the route; the browser never resolves hostnames
   locally.
 * At startup nine checks (V1–V9) prove the isolation before any identity is

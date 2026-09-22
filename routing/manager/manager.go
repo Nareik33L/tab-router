@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Nareik33L/tab-router/routing/provider"
 )
@@ -23,6 +24,13 @@ type Provisioner interface {
 	// Stopped by the caller after the swap.
 	Reestablish(ctx context.Context, slot int, failed provider.Route) (provider.Route, error)
 	Close() error
+}
+
+// SessionReplacer mints a new upstream session for one slot. Startup uses
+// it when two identities observe the same public IP. Reestablish must not
+// call it: a new session is a new public IP.
+type SessionReplacer interface {
+	ReplaceSession(ctx context.Context, slot int) (provider.Route, error)
 }
 
 // SessionExits pins an identity to the exit observed at V1 so the public
@@ -72,6 +80,21 @@ func (s Static) Reestablish(_ context.Context, slot int, failed provider.Route) 
 
 func (s Static) Close() error { return nil }
 
+// Input selects a provisioner. N is how many identities the caller intends
+// to start; provisioners receive that count again at Provision time.
+type Input struct {
+	DataDir    string
+	RoutesPath string
+	Explicit   []provider.RouteDef
+	N          int
+	// Provider is an explicit selection such as "decodo". Empty keeps the
+	// historical fallback order. An explicit provider that cannot be built
+	// is a fatal error: Open does not continue to Tor.
+	Provider string
+	// Decodo, when set, is used as-is for Provider "decodo".
+	Decodo *Decodo
+}
+
 // Resolve picks a provisioner for this session.
 //
 //  1. explicitDefs (tests / --routes) win.
@@ -79,23 +102,50 @@ func (s Static) Close() error { return nil }
 //  3. Else an existing routes.toml (power-user override).
 //  4. Else the default local Tor provisioner (no account, no login).
 func Resolve(ctx context.Context, dataDir, routesPath string, explicitDefs []provider.RouteDef, n int) (Provisioner, string, error) {
-	if len(explicitDefs) > 0 {
-		return Static{Defs: explicitDefs}, "static", nil
+	return Open(ctx, Input{DataDir: dataDir, RoutesPath: routesPath, Explicit: explicitDefs, N: n})
+}
+
+// Open picks a provisioner.
+//
+//  1. Explicit route definitions (tests / --routes) win.
+//  2. Else an explicit provider. "decodo" never falls through to Tor.
+//  3. Else a configured provider.toml (optional Mullvad leftover).
+//  4. Else an existing routes.toml (power-user override).
+//  5. Else the default local Tor provisioner (no account, no login).
+func Open(ctx context.Context, in Input) (Provisioner, string, error) {
+	if len(in.Explicit) > 0 {
+		return Static{Defs: in.Explicit}, "static", nil
 	}
-	pp := Path(dataDir)
+	if p := strings.ToLower(strings.TrimSpace(in.Provider)); p != "" {
+		switch p {
+		case "decodo":
+			d := in.Decodo
+			if d == nil {
+				built, err := DecodoFromEnv(in.DataDir, DecodoConfig{})
+				if err != nil {
+					return nil, "", fmt.Errorf("decodo: %w", err)
+				}
+				d = built
+			}
+			return d, d.Name(), nil
+		default:
+			return nil, "", fmt.Errorf("unknown network provider %q", in.Provider)
+		}
+	}
+	pp := Path(in.DataDir)
 	if _, err := os.Stat(pp); err == nil {
-		m, err := OpenMullvad(ctx, pp, n)
+		m, err := OpenMullvad(ctx, pp, in.N)
 		if err != nil {
 			return nil, "", err
 		}
 		return m, m.Name(), nil
 	}
-	if routesPath != "" {
-		if _, err := os.Stat(routesPath); err == nil {
+	if in.RoutesPath != "" {
+		if _, err := os.Stat(in.RoutesPath); err == nil {
 			return nil, "", ErrTryRoutes
 		}
 	}
-	return &Local{DataDir: dataDir}, "tor", nil
+	return &Local{DataDir: in.DataDir}, "tor", nil
 }
 
 // ErrNoProvider is retained for callers that still special-case a missing
